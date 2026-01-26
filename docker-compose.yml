@@ -1,0 +1,27 @@
+services:
+  monolith:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ldap-crypto-monolith
+    # This maps the internal Nginx port (8000) to your host
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # These variables can be defined in .env or passed from the shell
+      - LDAP_HOST=${LDAP_HOST}
+      - LDAP_PORT=${LDAP_PORT}
+      - LDAP_USE_SSL=${LDAP_USE_SSL:-false}
+      - BASE_DN=${BASE_DN}
+      - ADMIN_USER=${ADMIN_USER}
+      - ADMIN_PW=${ADMIN_PW}
+      - JWT_SECRET=${JWT_SECRET}
+    restart: always
+    # This ensures your logs are visible in the console
+    tty: true
+
+networks:
+  default:
+    name: ldap_network

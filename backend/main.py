@@ -1,0 +1,247 @@
+import os
+import base64
+import ssl
+from fastapi import FastAPI, HTTPException, Query, Body, Depends
+from ldap3 import Server, Connection, ALL, SUBTREE, MODIFY_REPLACE, Tls
+from typing import Optional, List, Dict
+from fastapi.security import OAuth2PasswordBearer
+
+app = FastAPI(title="LDAP Crypto Dashboard API")
+
+# --- SECURITY CONFIG ---
+SECRET_KEY = os.getenv("JWT_SECRET", "super-secret-crypto-key")
+ALGORITHM = "HS256"
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
+# Config from Environment
+# LDAP_URL = os.getenv("LDAP_URL")
+LDAP_HOST = os.getenv("LDAP_HOST", "localhost")
+LDAP_PORT = int(os.getenv("LDAP_PORT", "389"))
+LDAP_USE_SSL = os.getenv("LDAP_USE_SSL", "false").lower() == "true"
+
+BASE_DN = os.getenv("BASE_DN")
+ADMIN_DN = f"cn={os.getenv('ADMIN_USER')},{BASE_DN}"
+ADMIN_PW = os.getenv("ADMIN_PW")
+
+def get_conn():
+    protocol = "ldaps" if LDAP_USE_SSL else "ldap"
+    full_url = f"{protocol}://{LDAP_HOST}:{LDAP_PORT}"
+    print(f"Connecting to: {full_url} (SSL: {LDAP_USE_SSL})")
+    
+    if LDAP_USE_SSL:
+        # Production/SSL Mode
+        tls_config = Tls(validate=ssl.CERT_REQUIRED, version=ssl.PROTOCOL_TLSv1_2)
+        server = Server(full_url, use_ssl=True, tls=tls_config, get_info=ALL)
+    else:
+        # Development/Non-SSL Mode
+        server = Server(full_url, use_ssl=False, get_info=ALL)
+
+    return Connection(server, ADMIN_DN, ADMIN_PW, auto_bind=True)
+
+# --- USER APIS ---
+
+def create_access_token(username: str):
+    payload = {
+        "sub": username,
+        "exp": time.time() + 3600  # 1 Hour expiry
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+@app.post("/api/login")
+async def login(username: str = Body(...), password: str = Body(...)):
+    """Authenticate via LDAP SSL and return a JWT."""
+    server = Server(LDAP_URL, use_ssl=True, get_info=ALL)
+    user_dn = f"uid={username},{BASE_DN}"
+    
+    try:
+        # Attempt to bind with user credentials
+        with Connection(server, user=user_dn, password=password, auto_bind=True) as conn:
+            token = create_access_token(username)
+            return {"access_token": token, "token_type": "bearer"}
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid LDAP Credentials")
+
+# Example of a protected route
+@app.get("/api/me")
+async def get_me(token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return {"username": payload.get("sub")}
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    
+@app.get("/users")
+async def list_users(page_size: int = Query(10, ge=1, le=1000), cookie: str = None):
+    """List all users with pagination."""
+    decoded_cookie = base64.b64decode(cookie) if cookie else None
+    with get_conn() as conn:
+        conn.search(BASE_DN, '(objectClass=person)', SUBTREE, paged_size=page_size, paged_cookie=decoded_cookie)
+        new_cookie = base64.b64encode(conn.result['controls']['1.2.840.113556.1.4.319']['value']['cookie']).decode('utf-8') if '1.2.840.113556.1.4.319' in conn.result['controls'] else None
+        return {"results": [e.entry_attributes_as_dict for e in conn.entries], "next_cookie": new_cookie}
+
+@app.get("/users/{username}")
+async def get_user(username: str):
+    """Fetch specific user details."""
+    with get_conn() as conn:
+        conn.search(BASE_DN, f'(&(objectClass=person)(uid={username}))', SUBTREE, attributes=['*'])
+        if not conn.entries: raise HTTPException(status_code=404, detail="User not found")
+        return conn.entries[0].entry_attributes_as_dict
+
+@app.post("/users")
+async def add_user(username: str, attributes: Dict):
+    """Add a new user (e.g., inetOrgPerson)."""
+    user_dn = f"uid={username},ou=users,{BASE_DN}"
+    obj_class = ['top', 'person', 'organizationalPerson', 'inetOrgPerson']
+    with get_conn() as conn:
+        if not conn.add(user_dn, obj_class, attributes):
+            raise HTTPException(status_code=400, detail=conn.result['description'])
+        return {"message": f"User {username} created"}
+
+@app.patch("/users/{username}")
+async def edit_user(username: str, updates: Dict):
+    """Modify user attributes."""
+    user_dn = f"uid={username},ou=users,{BASE_DN}"
+    changes = {k: [(MODIFY_REPLACE, [v])] for k, v in updates.items()}
+    with get_conn() as conn:
+        if not conn.modify(user_dn, changes):
+            raise HTTPException(status_code=400, detail=conn.result['description'])
+        return {"message": "User updated"}
+
+# --- GROUP APIS ---
+
+@app.get("/groups")
+async def list_groups(page_size: int = Query(10, ge=1, le=1000), cookie: str = None):
+    """List all groups with pagination."""
+    decoded_cookie = base64.b64decode(cookie) if cookie else None
+    with get_conn() as conn:
+        conn.search(BASE_DN, '(objectClass=groupOfNames)', SUBTREE, paged_size=page_size, paged_cookie=decoded_cookie)
+        return {"results": [e.entry_dn for e in conn.entries]}
+
+@app.post("/groups")
+async def add_group(group_name: str):
+    """Create a new group."""
+    group_dn = f"cn={group_name},ou=groups,{BASE_DN}"
+    with get_conn() as conn:
+        # groupOfNames requires at least one member (usually the admin)
+        if not conn.add(group_dn, ['top', 'groupOfNames'], {'member': [ADMIN_DN]}):
+            raise HTTPException(status_code=400, detail=conn.result['description'])
+        return {"message": f"Group {group_name} created"}
+
+# --- DISABLE / DELETE ---
+
+@app.delete("/resource")
+async def remove_resource(dn: str):
+    """Deletion for either user or group based on DN."""
+    with get_conn() as conn:
+        if not conn.delete(dn):
+            raise HTTPException(status_code=400, detail=conn.result['description'])
+        return {"message": f"Entry {dn} deleted"}
+
+@app.post("/users/{username}/disable")
+async def disable_user(username: str):
+    """Disable user (locking bind) by changing password to something invalid."""
+    user_dn = f"uid={username},ou=users,{BASE_DN}"
+    # In OpenLDAP, 'locking' is often done by prefixing the password with {LOCKED}
+    with get_conn() as conn:
+        conn.modify(user_dn, {'userPassword': [(MODIFY_REPLACE, ['{LOCKED}'])]})
+        return {"message": "User disabled"}
+    
+# --- SEARCH APIS ---
+
+@app.get("/search/users")
+async def search_users(
+    q: str = Query(..., description="Search by name, uid, or email"),
+    page_size: int = Query(10, le=1000),
+    cookie: str = None
+):
+    """Search users across multiple fields using an 'OR' filter."""
+    decoded_cookie = base64.b64decode(cookie) if cookie else None
+    
+    # This filter looks for the string in uid OR common name OR email
+    search_filter = f"(|(uid=*{q}*)(cn=*{q}*)(mail=*{q}*))"
+    
+    with get_conn() as conn:
+        conn.search(
+            search_base=BASE_DN,
+            search_filter=f"(&(objectClass=person){search_filter})",
+            search_scope=SUBTREE,
+            attributes=['uid', 'cn', 'mail', 'displayName'],
+            paged_size=page_size,
+            paged_cookie=decoded_cookie
+        )
+        
+        # Extract cookie for next page
+        controls = conn.result.get('controls', {})
+        paged_control = controls.get('1.2.840.113556.1.4.319', {})
+        resp_cookie = paged_control.get('value', {}).get('cookie')
+        new_cookie = base64.b64encode(resp_cookie).decode('utf-8') if resp_cookie else None
+
+        return {
+            "results": [e.entry_attributes_as_dict for e in conn.entries],
+            "next_cookie": new_cookie
+        }
+
+@app.get("/search/groups")
+async def search_groups(
+    name: str = Query(..., description="Group name (cn)"),
+    page_size: int = Query(10, le=1000),
+    cookie: str = None
+):
+    """Find groups by name."""
+    decoded_cookie = base64.b64decode(cookie) if cookie else None
+    
+    with get_conn() as conn:
+        conn.search(
+            search_base=BASE_DN,
+            search_filter=f"(&(objectClass=groupOfNames)(cn=*{name}*))",
+            search_scope=SUBTREE,
+            paged_size=page_size,
+            paged_cookie=decoded_cookie
+        )
+        
+        # Cookie logic
+        controls = conn.result.get('controls', {})
+        paged_control = controls.get('1.2.840.113556.1.4.319', {})
+        resp_cookie = paged_control.get('value', {}).get('cookie')
+        new_cookie = base64.b64encode(resp_cookie).decode('utf-8') if resp_cookie else None
+
+        return {
+            "results": [{"dn": e.entry_dn, "cn": e.cn.value} for e in conn.entries],
+            "next_cookie": new_cookie
+        }
+@app.get("/users/{username}/groups")
+async def get_user_groups(username: str):
+    """
+    Find all groups a user belongs to. 
+    Uses the 'memberOf' operational attribute if enabled, 
+    otherwise searches groups for the user's DN.
+    """
+    user_dn = f"uid={username},ou=users,{BASE_DN}"
+    with get_conn() as conn:
+        # Strategy A: Check 'memberOf' on the user object (Fastest)
+        conn.search(BASE_DN, f'(uid={username})', attributes=['memberOf'])
+        if conn.entries and 'memberOf' in conn.entries[0]:
+            return {"groups": conn.entries[0].memberOf.values}
+        
+        # Strategy B: Fallback - Search groups where user is a member
+        conn.search(BASE_DN, f'(&(objectClass=groupOfNames)(member={user_dn}))', attributes=['cn'])
+        return {"groups": [e.cn.value for e in conn.entries]}
+    
+@app.get("/groups/{group_name}")
+async def get_group_details(group_name: str, page_size: int = 50, cookie: str = None):
+    """Fetch group info and its members with pagination."""
+    group_dn = f"cn={group_name},ou=groups,{BASE_DN}"
+    decoded_cookie = base64.b64decode(cookie) if cookie else None
+    
+    with get_conn() as conn:
+        # Fetch group attributes
+        conn.search(group_dn, '(objectClass=*)', attributes=['*'])
+        if not conn.entries: raise HTTPException(status_code=404, detail="Group not found")
+        
+        # Note: In massive groups, 'member' is a list that can be huge.
+        # This is where pagination on the attribute level (Attr-Range) helps,
+        # but for now, we'll return the standard attributes.
+        return {
+            "details": conn.entries[0].entry_attributes_as_dict,
+            "dn": group_dn
+        }
