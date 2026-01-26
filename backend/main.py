@@ -30,14 +30,17 @@ def get_conn():
     print(f"Connecting to: {full_url} (SSL: {LDAP_USE_SSL})")
     
     if LDAP_USE_SSL:
-        # Production/SSL Mode
-        tls_config = Tls(validate=ssl.CERT_REQUIRED, version=ssl.PROTOCOL_TLSv1_2)
+        tls_config = Tls(validate=ssl.CERT_NONE, version=ssl.PROTOCOL_TLSv1_2)
         server = Server(full_url, use_ssl=True, tls=tls_config, get_info=ALL)
     else:
-        # Development/Non-SSL Mode
         server = Server(full_url, use_ssl=False, get_info=ALL)
 
-    return Connection(server, ADMIN_DN, ADMIN_PW, auto_bind=True)
+    # --- THE CRITICAL FIX FOR FREEIPA ---
+    # FreeIPA admin DN is: uid=admin,cn=users,cn=accounts,dc=crypto,dc=lake
+    # NOT: cn=admin,dc=crypto,dc=lake
+    ipa_admin_dn = f"uid={os.getenv('ADMIN_USER')},cn=users,cn=accounts,{BASE_DN}"
+
+    return Connection(server, ipa_admin_dn, ADMIN_PW, auto_bind=True)
 
 # --- USER APIS ---
 
