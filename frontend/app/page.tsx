@@ -1,65 +1,93 @@
-import Image from "next/image";
+"use client";
+import React, { useState } from 'react';
+import { Layout, Table, Input, Button, Tag, Space, Card, Statistic, Row, Col, Dropdown, Menu } from 'antd';
+import { SearchOutlined, UserOutlined, SettingOutlined, LogoutOutlined } from '@ant-design/icons';
 
-export default function Home() {
+const { Header, Content, Sider } = Layout;
+
+export default function AntDashboard() {
+  const [loading, setLoading] = useState(false);
+
+  const columns = [
+    { title: 'UID', dataIndex: 'uid', key: 'uid', render: (text: string) => <a className="font-mono">{text}</a> },
+    { title: 'Common Name', dataIndex: 'cn', key: 'cn' },
+    { title: 'Email', dataIndex: 'mail', key: 'mail' },
+    { 
+      title: 'Status', 
+      dataIndex: 'status', 
+      key: 'status',
+      render: (status: string) => (
+        <Tag color={status === 'Active' ? 'green' : 'volcano'}>{status.toUpperCase()}</Tag>
+      )
+    },
+    {
+      title: 'Action',
+      key: 'action',
+      render: () => (
+        <Space size="middle">
+          <Button type="link">Edit</Button>
+          <Dropdown menu={{ items: [{ key: '1', label: 'Disable User' }, { key: '2', label: 'Delete', danger: true }] }}>
+            <Button type="text">More</Button>
+          </Dropdown>
+        </Space>
+      ),
+    },
+  ];
+
+  const data = [
+    { key: '1', uid: 'whale_01', cn: 'Satoshi Nakamoto', mail: 'satoshi@btc.com', status: 'Active' },
+    { key: '2', uid: 'dev_09', cn: 'Vitalik Buterin', mail: 'vitalik@eth.com', status: 'Active' },
+  ];
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <Layout style={{ minHeight: '100vh' }}>
+      <Sider theme="dark" breakpoint="lg" collapsedWidth="0">
+        <div className="p-4 text-white font-bold text-center border-b border-gray-700 mb-4">
+          CRYPTO LAKE
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+        <Menu theme="dark" mode="inline" defaultSelectedKeys={['1']} items={[
+          { key: '1', icon: <UserOutlined />, label: 'User Explorer' },
+          { key: '2', icon: <SettingOutlined />, label: 'LDAP Config' },
+          { key: '3', icon: <LogoutOutlined />, label: 'Logout' },
+        ]} />
+      </Sider>
+      
+      <Layout>
+        <Header style={{ background: '#fff', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h2 className="text-lg font-semibold m-0">Directory Management</h2>
+          <Space>
+            <span className="text-gray-400">Next.js 16.1.5</span>
+            <Button type="primary" shape="circle" icon={<UserOutlined />} />
+          </Space>
+        </Header>
+
+        <Content style={{ margin: '24px' }}>
+          <Row gutter={16} className="mb-6">
+            <Col span={8}>
+              <Card bordered={false} className="shadow-sm"><Statistic title="LDAP Entries" value={100000000} /></Card>
+            </Col>
+            <Col span={8}>
+              <Card bordered={false} className="shadow-sm"><Statistic title="SSL Status" value="Encrypted" valueStyle={{ color: '#3f8600' }} /></Card>
+            </Col>
+          </Row>
+
+          <Card className="shadow-sm">
+            <div className="mb-4 flex gap-2">
+              <Input 
+                size="large" 
+                placeholder="Search UID or Wallet..." 
+                prefix={<SearchOutlined />} 
+                className="max-w-md"
+              />
+              <Button type="primary" size="large" loading={loading} onClick={() => setLoading(true)}>
+                Execute Query
+              </Button>
+            </div>
+            
+            <Table columns={columns} dataSource={data} pagination={{ pageSize: 10 }} />
+          </Card>
+        </Content>
+      </Layout>
+    </Layout>
   );
 }
