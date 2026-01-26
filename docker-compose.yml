@@ -23,5 +23,5 @@ services:
     tty: true
 
 networks:
-  default:
-    name: ldap_network
+  ldap_network:
+    external: true
