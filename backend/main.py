@@ -16,7 +16,8 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
 # Config from Environment
 # LDAP_URL = os.getenv("LDAP_URL")
 LDAP_HOST = os.getenv("LDAP_HOST", "localhost")
-LDAP_PORT = int(os.getenv("LDAP_PORT", "389"))
+raw_port = os.getenv("LDAP_PORT", "389")
+LDAP_PORT = int(raw_port) if raw_port.strip() else 389
 LDAP_USE_SSL = os.getenv("LDAP_USE_SSL", "false").lower() == "true"
 
 BASE_DN = os.getenv("BASE_DN")
