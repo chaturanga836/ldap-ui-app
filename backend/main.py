@@ -76,7 +76,7 @@ async def get_me(token: str = Depends(oauth2_scheme)):
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     
-@app.get("/users")
+@app.get("/api/users")
 async def list_users(page_size: int = Query(10, ge=1, le=1000), cookie: str = None):
     """List all users with pagination."""
     decoded_cookie = base64.b64decode(cookie) if cookie else None
@@ -85,7 +85,7 @@ async def list_users(page_size: int = Query(10, ge=1, le=1000), cookie: str = No
         new_cookie = base64.b64encode(conn.result['controls']['1.2.840.113556.1.4.319']['value']['cookie']).decode('utf-8') if '1.2.840.113556.1.4.319' in conn.result['controls'] else None
         return {"results": [e.entry_attributes_as_dict for e in conn.entries], "next_cookie": new_cookie}
 
-@app.get("/users/{username}")
+@app.get("/api/users/{username}")
 async def get_user(username: str):
     """Fetch specific user details."""
     with get_conn() as conn:
@@ -93,7 +93,7 @@ async def get_user(username: str):
         if not conn.entries: raise HTTPException(status_code=404, detail="User not found")
         return conn.entries[0].entry_attributes_as_dict
 
-@app.post("/users")
+@app.post("/api/users")
 async def add_user(username: str, attributes: Dict):
     """Add a new user (e.g., inetOrgPerson)."""
     user_dn = f"uid={username},ou=users,{BASE_DN}"
@@ -103,7 +103,7 @@ async def add_user(username: str, attributes: Dict):
             raise HTTPException(status_code=400, detail=conn.result['description'])
         return {"message": f"User {username} created"}
 
-@app.patch("/users/{username}")
+@app.patch("/api/users/{username}")
 async def edit_user(username: str, updates: Dict):
     """Modify user attributes."""
     user_dn = f"uid={username},ou=users,{BASE_DN}"
@@ -115,7 +115,7 @@ async def edit_user(username: str, updates: Dict):
 
 # --- GROUP APIS ---
 
-@app.get("/groups")
+@app.get("/api/groups")
 async def list_groups(page_size: int = Query(10, ge=1, le=1000), cookie: str = None):
     """List all groups with pagination."""
     decoded_cookie = base64.b64decode(cookie) if cookie else None
@@ -123,7 +123,7 @@ async def list_groups(page_size: int = Query(10, ge=1, le=1000), cookie: str = N
         conn.search(BASE_DN, '(objectClass=groupOfNames)', SUBTREE, paged_size=page_size, paged_cookie=decoded_cookie)
         return {"results": [e.entry_dn for e in conn.entries]}
 
-@app.post("/groups")
+@app.post("/api/groups")
 async def add_group(group_name: str):
     """Create a new group."""
     group_dn = f"cn={group_name},ou=groups,{BASE_DN}"
@@ -135,7 +135,7 @@ async def add_group(group_name: str):
 
 # --- DISABLE / DELETE ---
 
-@app.delete("/resource")
+@app.delete("/api/resource")
 async def remove_resource(dn: str):
     """Deletion for either user or group based on DN."""
     with get_conn() as conn:
@@ -143,7 +143,7 @@ async def remove_resource(dn: str):
             raise HTTPException(status_code=400, detail=conn.result['description'])
         return {"message": f"Entry {dn} deleted"}
 
-@app.post("/users/{username}/disable")
+@app.post("/api/users/{username}/disable")
 async def disable_user(username: str):
     """Disable user (locking bind) by changing password to something invalid."""
     user_dn = f"uid={username},ou=users,{BASE_DN}"
@@ -154,7 +154,7 @@ async def disable_user(username: str):
     
 # --- SEARCH APIS ---
 
-@app.get("/search/users")
+@app.get("/api/search/users")
 async def search_users(
     q: str = Query(..., description="Search by name, uid, or email"),
     page_size: int = Query(10, le=1000),
@@ -187,7 +187,7 @@ async def search_users(
             "next_cookie": new_cookie
         }
 
-@app.get("/search/groups")
+@app.get("/api/search/groups")
 async def search_groups(
     name: str = Query(..., description="Group name (cn)"),
     page_size: int = Query(10, le=1000),
@@ -215,7 +215,7 @@ async def search_groups(
             "results": [{"dn": e.entry_dn, "cn": e.cn.value} for e in conn.entries],
             "next_cookie": new_cookie
         }
-@app.get("/users/{username}/groups")
+@app.get("/api/users/{username}/groups")
 async def get_user_groups(username: str):
     """
     Find all groups a user belongs to. 
@@ -233,7 +233,7 @@ async def get_user_groups(username: str):
         conn.search(BASE_DN, f'(&(objectClass=groupOfNames)(member={user_dn}))', attributes=['cn'])
         return {"groups": [e.cn.value for e in conn.entries]}
     
-@app.get("/groups/{group_name}")
+@app.get("/api/groups/{group_name}")
 async def get_group_details(group_name: str, page_size: int = 50, cookie: str = None):
     """Fetch group info and its members with pagination."""
     group_dn = f"cn={group_name},ou=groups,{BASE_DN}"
