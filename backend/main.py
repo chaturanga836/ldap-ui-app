@@ -48,6 +48,11 @@ def create_access_token(username: str):
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
+@app.get("/api/health")
+async def health():
+    return {"status": "ok"}
+
+
 @app.post("/api/login")
 async def login(username: str = Body(...), password: str = Body(...)):
     """Authenticate via LDAP SSL and return a JWT."""
