@@ -1,93 +1,147 @@
 "use client";
-import React, { useState } from 'react';
-import { Layout, Table, Input, Button, Tag, Space, Card, Statistic, Row, Col, Dropdown, Menu } from 'antd';
-import { SearchOutlined, UserOutlined, SettingOutlined, LogoutOutlined } from '@ant-design/icons';
+import React, { useEffect, useState } from 'react';
+import { Table, Tag, message, Button, Modal, Form, Input, Space, Popconfirm } from 'antd';
+import { ldapService } from '@/lib/api';
 
-const { Header, Content, Sider } = Layout;
+interface LDAPUser {
+  dn: string;
+  uid: string;
+  cn: string;
+  mail: string;
+  title: string | null;
+}
 
-export default function AntDashboard() {
-  const [loading, setLoading] = useState(false);
+export default function Dashboard() {
+  const [data, setData] = useState<LDAPUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [form] = Form.useForm();
+
+  // 1. Load Data using our service
+  const loadUsers = async () => {
+    setLoading(true);
+    try {
+      const result = await ldapService.getUsers();
+      setData(result.results);
+    } catch (error) {
+      message.error("Failed to fetch users from Crypto Lake");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  // 2. Handle Create User
+  const handleCreate = async (values: any) => {
+    try {
+      // Mapping form values to LDAP attributes
+      const payload = {
+        sn: values.sn,
+        cn: values.cn,
+        mail: values.mail,
+        title: values.title,
+        userPassword: values.password
+      };
+      
+      await ldapService.createUser(values.uid, payload);
+      message.success(`User ${values.uid} created successfully`);
+      setIsModalOpen(false);
+      form.resetFields();
+      loadUsers(); // Refresh table
+    } catch (error) {
+      message.error("Creation failed");
+    }
+  };
+
+  // 3. Handle Delete User
+  const handleDelete = async (dn: string) => {
+    try {
+      await ldapService.deleteResource(dn);
+      message.success("User purged from directory");
+      loadUsers(); // Refresh table
+    } catch (error) {
+      message.error("Purge failed");
+    }
+  };
 
   const columns = [
-    { title: 'UID', dataIndex: 'uid', key: 'uid', render: (text: string) => <a className="font-mono">{text}</a> },
-    { title: 'Common Name', dataIndex: 'cn', key: 'cn' },
-    { title: 'Email', dataIndex: 'mail', key: 'mail' },
+    { title: 'Username (UID)', dataIndex: 'uid', key: 'uid', width: '15%' },
+    { title: 'Full Name', dataIndex: 'cn', key: 'cn', width: '25%' },
+    { title: 'Email', dataIndex: 'mail', key: 'mail', width: '25%' },
     { 
-      title: 'Status', 
-      dataIndex: 'status', 
-      key: 'status',
-      render: (status: string) => (
-        <Tag color={status === 'Active' ? 'green' : 'volcano'}>{status.toUpperCase()}</Tag>
-      )
+      title: 'Role', 
+      dataIndex: 'title', 
+      key: 'title',
+      render: (text: string) => <Tag color={text ? "blue" : "default"}>{text || 'Member'}</Tag>
     },
     {
       title: 'Action',
       key: 'action',
-      render: () => (
+      render: (_: any, record: LDAPUser) => (
         <Space size="middle">
           <Button type="link">Edit</Button>
-          <Dropdown menu={{ items: [{ key: '1', label: 'Disable User' }, { key: '2', label: 'Delete', danger: true }] }}>
-            <Button type="text">More</Button>
-          </Dropdown>
+          <Popconfirm
+            title="Delete user"
+            description="Are you sure you want to remove this user?"
+            onConfirm={() => handleDelete(record.dn)}
+            okText="Yes"
+            cancelText="No"
+          >
+            <Button type="link" danger>Delete</Button>
+          </Popconfirm>
         </Space>
       ),
     },
   ];
 
-  const data = [
-    { key: '1', uid: 'whale_01', cn: 'Satoshi Nakamoto', mail: 'satoshi@btc.com', status: 'Active' },
-    { key: '2', uid: 'dev_09', cn: 'Vitalik Buterin', mail: 'vitalik@eth.com', status: 'Active' },
-  ];
-
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider theme="dark" breakpoint="lg" collapsedWidth="0">
-        <div className="p-4 text-white font-bold text-center border-b border-gray-700 mb-4">
-          CRYPTO LAKE
-        </div>
-        <Menu theme="dark" mode="inline" defaultSelectedKeys={['1']} items={[
-          { key: '1', icon: <UserOutlined />, label: 'User Explorer' },
-          { key: '2', icon: <SettingOutlined />, label: 'LDAP Config' },
-          { key: '3', icon: <LogoutOutlined />, label: 'Logout' },
-        ]} />
-      </Sider>
-      
-      <Layout>
-        <Header style={{ background: '#fff', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 className="text-lg font-semibold m-0">Directory Management</h2>
-          <Space>
-            <span className="text-gray-400">Next.js 16.1.5</span>
-            <Button type="primary" shape="circle" icon={<UserOutlined />} />
-          </Space>
-        </Header>
+    <div style={{ padding: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+        <h1>LDAP User Management</h1>
+        <Button type="primary" onClick={() => setIsModalOpen(true)}>
+          + Add User
+        </Button>
+      </div>
 
-        <Content style={{ margin: '24px' }}>
-          <Row gutter={16} className="mb-6">
-            <Col span={8}>
-              <Card bordered={false} className="shadow-sm"><Statistic title="LDAP Entries" value={100000000} /></Card>
-            </Col>
-            <Col span={8}>
-              <Card bordered={false} className="shadow-sm"><Statistic title="SSL Status" value="Encrypted" valueStyle={{ color: '#3f8600' }} /></Card>
-            </Col>
-          </Row>
+      <Table 
+        columns={columns} 
+        dataSource={data} 
+        rowKey="dn" 
+        loading={loading}
+        pagination={{ pageSize: 10 }}
+      />
 
-          <Card className="shadow-sm">
-            <div className="mb-4 flex gap-2">
-              <Input 
-                size="large" 
-                placeholder="Search UID or Wallet..." 
-                prefix={<SearchOutlined />} 
-                className="max-w-md"
-              />
-              <Button type="primary" size="large" loading={loading} onClick={() => setLoading(true)}>
-                Execute Query
-              </Button>
-            </div>
-            
-            <Table columns={columns} dataSource={data} pagination={{ pageSize: 10 }} />
-          </Card>
-        </Content>
-      </Layout>
-    </Layout>
+      {/* CREATE USER MODAL */}
+      <Modal 
+        title="Create New LDAP User" 
+        open={isModalOpen} 
+        onCancel={() => setIsModalOpen(false)}
+        onOk={() => form.submit()}
+      >
+        <Form form={form} layout="vertical" onFinish={handleCreate}>
+          <Form.Item name="uid" label="Username" rules={[{ required: true }]}>
+            <Input placeholder="e.g. satoshi" />
+          </Form.Item>
+          <Form.Item name="cn" label="Full Name" rules={[{ required: true }]}>
+            <Input placeholder="e.g. Satoshi Nakamoto" />
+          </Form.Item>
+          <Form.Item name="sn" label="Surname" rules={[{ required: true }]}>
+            <Input placeholder="e.g. Nakamoto" />
+          </Form.Item>
+          <Form.Item name="mail" label="Email" rules={[{ type: 'email' }]}>
+            <Input placeholder="e.g. satoshi@btc.com" />
+          </Form.Item>
+          <Form.Item name="title" label="Title">
+            <Input placeholder="e.g. Lead Architect" />
+          </Form.Item>
+          <Form.Item name="password" label="Password" rules={[{ required: true }]}>
+            <Input.Password />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </div>
   );
 }

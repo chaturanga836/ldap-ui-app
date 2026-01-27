@@ -8,8 +8,17 @@ from fastapi import FastAPI, HTTPException, Query, Body, Depends
 from ldap3 import Server, Connection, ALL, SUBTREE, MODIFY_REPLACE, Tls
 from typing import Optional, List, Dict
 from fastapi.security import OAuth2PasswordBearer
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="LDAP Crypto Dashboard API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Allows your frontend to talk to the backend
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --- SECURITY CONFIG ---
 SECRET_KEY = os.getenv("JWT_SECRET", "super-secret-crypto-key")
