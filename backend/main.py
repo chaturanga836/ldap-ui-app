@@ -47,7 +47,15 @@ def get_ldap_server():
         return Server(LDAP_HOST, port=LDAP_PORT, use_ssl=False, get_info=ALL)
     
 # --- USER APIS ---
-search_attrs = ['uid', 'cn', 'mail', 'sn', 'displayName']
+search_attrs = [
+    'uid',            # Login username (e.g., 'satoshi')
+    'cn',             # Full Name (e.g., 'Satoshi Nakamoto')
+    'mail',           # Email address
+    'title',          # Job Title (e.g., 'Lead Cryptographer')
+    'employeeType',   # Classification (e.g., 'Contractor', 'Admin')
+    'displayName',    # Friendly UI name
+    'description'     # Notes about the user
+]
 
 def create_access_token(username: str):
     payload = {
@@ -110,6 +118,7 @@ async def list_users(page_size: int = Query(10, ge=1, le=1000), cookie: str = No
                 "uid": e.uid.value if hasattr(e, 'uid') else "N/A",
                 "cn": e.cn.value if hasattr(e, 'cn') else "N/A",
                 "mail": e.mail.value if hasattr(e, 'mail') else "N/A",
+                "title": e.title.value if hasattr(e, 'title') else "General Member", # New field
                 "status": "Active"
             })
 
