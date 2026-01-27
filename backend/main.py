@@ -38,9 +38,11 @@ def get_conn():
     # --- THE CRITICAL FIX FOR FREEIPA ---
     # FreeIPA admin DN is: uid=admin,cn=users,cn=accounts,dc=crypto,dc=lake
     # NOT: cn=admin,dc=crypto,dc=lake
-    ipa_admin_dn = f"uid={os.getenv('ADMIN_USER')},cn=users,cn=accounts,{BASE_DN}"
+    # ipa_admin_dn = f"uid={os.getenv('ADMIN_USER')},cn=users,cn=accounts,{BASE_DN}"
+    
+    admin_dn = f"cn={os.getenv('ADMIN_USER')},{os.getenv('BASE_DN')}"
 
-    return Connection(server, ipa_admin_dn, ADMIN_PW, auto_bind=True)
+    return Connection(server, admin_dn, ADMIN_PW, auto_bind=True)
 
 # --- USER APIS ---
 
