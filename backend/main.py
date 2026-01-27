@@ -1,3 +1,4 @@
+from http import server
 import os
 import base64
 import ssl
@@ -27,25 +28,24 @@ ADMIN_DN = f"cn={os.getenv('ADMIN_USER')},{BASE_DN}"
 ADMIN_PW = os.getenv("ADMIN_PW")
 
 def get_conn():
-    protocol = "ldaps" if LDAP_USE_SSL else "ldap"
-    full_url = f"{protocol}://{LDAP_HOST}:{LDAP_PORT}"
-    print(f"Connecting to: {full_url} (SSL: {LDAP_USE_SSL})")
+    server = get_ldap_server()
     
+    try:
+        # We use the ADMIN_DN for all management operations
+        return Connection(server, user=ADMIN_DN, password=ADMIN_PW, auto_bind=True)
+    except Exception as e:
+        print(f"LDAP Connection Error: {e}")
+        raise HTTPException(status_code=500, detail="Internal LDAP Connection Error")
+
+def get_ldap_server():
+    """Configures the Server object with SSL/TLS if enabled."""
     if LDAP_USE_SSL:
+        # validate=ssl.CERT_NONE allows self-signed certs often used in custom LDAP
         tls_config = Tls(validate=ssl.CERT_NONE, version=ssl.PROTOCOL_TLSv1_2)
-        server = Server(full_url, use_ssl=True, tls=tls_config, get_info=ALL)
+        return Server(LDAP_HOST, port=LDAP_PORT, use_ssl=True, tls=tls_config, get_info=ALL)
     else:
-        server = Server(full_url, use_ssl=False, get_info=ALL)
-
-    # --- THE CRITICAL FIX FOR FREEIPA ---
-    # FreeIPA admin DN is: uid=admin,cn=users,cn=accounts,dc=crypto,dc=lake
-    # NOT: cn=admin,dc=crypto,dc=lake
-    # ipa_admin_dn = f"uid={os.getenv('ADMIN_USER')},cn=users,cn=accounts,{BASE_DN}"
+        return Server(LDAP_HOST, port=LDAP_PORT, use_ssl=False, get_info=ALL)
     
-    admin_dn = f"cn={os.getenv('ADMIN_USER')},{os.getenv('BASE_DN')}"
-
-    return Connection(server, admin_dn, ADMIN_PW, auto_bind=True)
-
 # --- USER APIS ---
 
 def create_access_token(username: str):
@@ -63,7 +63,7 @@ async def health():
 @app.post("/api/login")
 async def login(username: str = Body(...), password: str = Body(...)):
     """Authenticate via LDAP SSL and return a JWT."""
-    server = Server(LDAP_HOST, port=LDAP_PORT, get_info=ALL)
+    server = get_ldap_server()
     user_dn = f"uid={username},ou=users,{BASE_DN}"
     
     try:
