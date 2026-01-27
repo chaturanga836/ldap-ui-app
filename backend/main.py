@@ -63,8 +63,8 @@ async def health():
 @app.post("/api/login")
 async def login(username: str = Body(...), password: str = Body(...)):
     """Authenticate via LDAP SSL and return a JWT."""
-    server = Server(LDAP_URL, use_ssl=True, get_info=ALL)
-    user_dn = f"uid={username},{BASE_DN}"
+    server = Server(LDAP_HOST, port=LDAP_PORT, get_info=ALL)
+    user_dn = f"uid={username},ou=users,{BASE_DN}"
     
     try:
         # Attempt to bind with user credentials
