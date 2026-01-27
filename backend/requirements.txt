@@ -2,3 +2,4 @@ fastapi
 uvicorn
 ldap3
 python-multipart
+pyjwt
