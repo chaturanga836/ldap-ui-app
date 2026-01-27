@@ -47,6 +47,7 @@ def get_ldap_server():
         return Server(LDAP_HOST, port=LDAP_PORT, use_ssl=False, get_info=ALL)
     
 # --- USER APIS ---
+search_attrs = ['uid', 'cn', 'mail', 'sn', 'displayName']
 
 def create_access_token(username: str):
     payload = {
@@ -89,7 +90,6 @@ async def list_users(page_size: int = Query(10, ge=1, le=1000), cookie: str = No
     decoded_cookie = base64.b64decode(cookie) if cookie else None
     
     # We define exactly what fields we want to show in our React table
-    search_attrs = ['uid', 'cn', 'mail', 'sn', 'displayName']
 
     with get_conn() as conn:
         conn.search(
