@@ -85,12 +85,41 @@ async def get_me(token: str = Depends(oauth2_scheme)):
     
 @app.get("/api/users")
 async def list_users(page_size: int = Query(10, ge=1, le=1000), cookie: str = None):
-    """List all users with pagination."""
+    """List all users with pagination and explicit attributes."""
     decoded_cookie = base64.b64decode(cookie) if cookie else None
+    
+    # We define exactly what fields we want to show in our React table
+    search_attrs = ['uid', 'cn', 'mail', 'sn', 'displayName']
+
     with get_conn() as conn:
-        conn.search(BASE_DN, '(objectClass=person)', SUBTREE, paged_size=page_size, paged_cookie=decoded_cookie)
-        new_cookie = base64.b64encode(conn.result['controls']['1.2.840.113556.1.4.319']['value']['cookie']).decode('utf-8') if '1.2.840.113556.1.4.319' in conn.result['controls'] else None
-        return {"results": [e.entry_attributes_as_dict for e in conn.entries], "next_cookie": new_cookie}
+        conn.search(
+            search_base=BASE_DN,
+            search_filter='(objectClass=person)',
+            search_scope=SUBTREE,
+            attributes=search_attrs,  # <--- CRITICAL: Tells LDAP what to return
+            paged_size=page_size,
+            paged_cookie=decoded_cookie
+        )
+
+        # We format the entries to make sure they are JSON serializable
+        # LDAP often returns values as lists; we extract the first value for the UI
+        results = []
+        for e in conn.entries:
+            results.append({
+                "dn": e.entry_dn,
+                "uid": e.uid.value if hasattr(e, 'uid') else "N/A",
+                "cn": e.cn.value if hasattr(e, 'cn') else "N/A",
+                "mail": e.mail.value if hasattr(e, 'mail') else "N/A",
+                "status": "Active"
+            })
+
+        # Pagination Cookie Logic
+        controls = conn.result.get('controls', {})
+        paged_control = controls.get('1.2.840.113556.1.4.319', {})
+        resp_cookie = paged_control.get('value', {}).get('cookie')
+        new_cookie = base64.b64encode(resp_cookie).decode('utf-8') if resp_cookie else None
+
+        return {"results": results, "next_cookie": new_cookie}
 
 @app.get("/api/users/{username}")
 async def get_user(username: str):
