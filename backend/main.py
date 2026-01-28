@@ -310,6 +310,31 @@ async def get_group_details(group_name: str, page_size: int = 50, cookie: str = 
 def get_ldap_tree():
     try:
         with get_conn() as conn:
+            # FIX: Change os.getenv("LDAP_SEARCH_BASE") to BASE_DN
+            conn.search(
+                search_base=BASE_DN, 
+                search_filter='(|(objectClass=organizationalUnit)(objectClass=domain)(objectClass=container))',
+                search_scope='SUBTREE',
+                attributes=['ou', 'dc', 'cn']
+            )
+        
+            tree_nodes = []
+            for entry in conn.entries:
+                if entry.entry_dn:
+                    # Get the most specific part of the DN for the label
+                    title = entry.entry_dn.split(',')[0] 
+                    
+                    tree_nodes.append({
+                        "title": title,
+                        "key": entry.entry_dn,
+                        "isLeaf": False 
+                    })
+                
+            return tree_nodes
+    except Exception as e:
+        return {"error": str(e)}
+    try:
+        with get_conn() as conn:
             conn.search(
                 search_base=os.getenv("LDAP_SEARCH_BASE"), 
                 search_filter='(|(objectClass=organizationalUnit)(objectClass=domain)(objectClass=container))',
