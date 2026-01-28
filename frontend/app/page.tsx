@@ -111,6 +111,7 @@ export default function Dashboard() {
         dataSource={data} 
         rowKey="dn" 
         loading={loading}
+        locale={{ emptyText: loading ? " " : "No Users Found" }}
         pagination={{ pageSize: 10 }}
       />
 

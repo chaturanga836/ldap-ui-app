@@ -305,3 +305,32 @@ async def get_group_details(group_name: str, page_size: int = 50, cookie: str = 
             "details": conn.entries[0].entry_attributes_as_dict,
             "dn": group_dn
         }
+        
+@app.get("/api/tree")
+def get_ldap_tree():
+    try:
+        # We search for all entries that act as containers
+        # Scope=SUBTREE gets everything; attributes=['ou'] identifies the branch names
+        conn.search(
+            search_base=os.getenv("LDAP_SEARCH_BASE"), 
+            search_filter='(|(objectClass=organizationalUnit)(objectClass=domain)(objectClass=container))',
+            search_scope='SUBTREE',
+            attributes=['ou', 'dc']
+        )
+        
+        tree_nodes = []
+        for entry in conn.entries:
+            # We want the 'title' to be the short name (e.g., 'users') 
+            # and 'key' to be the full DN for API calls
+            dn_parts = entry.entry_dn.split(',')
+            title = dn_parts[0] # Takes 'ou=users' from 'ou=users,dc=crypto,dc=lake'
+            
+            tree_nodes.append({
+                "title": title,
+                "key": entry.entry_dn,
+                "isLeaf": False # Allows users to click and expand
+            })
+            
+        return tree_nodes
+    except Exception as e:
+        return {"error": str(e)}
