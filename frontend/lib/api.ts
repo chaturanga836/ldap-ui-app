@@ -2,12 +2,21 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL || ''; // Relative paths work b
 
 export const ldapService = {
   // --- USER METHODS ---
-  getUsers: async (pageSize = 10, cookie = '') => {
-    const url = `${BASE_URL}/api/users?page_size=${pageSize}${cookie ? `&cookie=${cookie}` : ''}`;
+    getUsers: async (pageSize = 10, cookie = '', parentDn = '') => {
+    // Build query parameters
+    const params = new URLSearchParams({
+        page_size: pageSize.toString(),
+    });
+
+    if (cookie) params.append('cookie', cookie);
+    if (parentDn) params.append('parent_dn', parentDn);
+
+    const url = `${BASE_URL}/api/users?${params.toString()}`;
+    
     const res = await fetch(url);
     if (!res.ok) throw new Error('Failed to fetch users');
     return res.json();
-  },
+    },
 
   createUser: async (username: string, userData: any) => {
     const res = await fetch(`${BASE_URL}/api/users?username=${username}`, {
@@ -39,5 +48,10 @@ export const ldapService = {
     const res = await fetch(`${BASE_URL}/api/search?q=${encodeURIComponent(query)}`);
     if (!res.ok) throw new Error('Search failed');
     return res.json();
+  },
+
+  getTree: async () => {
+    const response = await fetch(`${BASE_URL}/api/tree`);
+    return response.json();
   }
 };

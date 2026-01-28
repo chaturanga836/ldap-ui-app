@@ -310,6 +310,63 @@ async def get_group_details(group_name: str, page_size: int = 50, cookie: str = 
 def get_ldap_tree():
     try:
         with get_conn() as conn:
+            # 1. Search for Folders AND People
+            search_filter = '(|(objectClass=organizationalUnit)(objectClass=domain)(objectClass=inetOrgPerson))'
+            
+            conn.search(
+                search_base=BASE_DN, 
+                search_filter=search_filter,
+                search_scope='SUBTREE',
+                attributes=['ou', 'dc', 'cn', 'objectClass']
+            )
+        
+            flat_map = {}
+            # We'll use this to keep track of how many users we've added per OU
+            user_counts_per_ou = {}
+
+            for entry in conn.entries:
+                dn = entry.entry_dn
+                is_user = 'inetOrgPerson' in entry.objectClass
+                
+                # Determine Label
+                if is_user:
+                    label = entry.cn.value if hasattr(entry, 'cn') else dn.split('=')[1].split(',')[0]
+                else:
+                    label = entry.ou.value if hasattr(entry, 'ou') else (entry.dc.value if hasattr(entry, 'dc') else dn.split('=')[1].split(',')[0])
+
+                # Logic for 10-user limit per folder
+                parts = dn.split(',', 1)
+                parent_dn = parts[1] if len(parts) > 1 else None
+                
+                if is_user:
+                    user_counts_per_ou[parent_dn] = user_counts_per_ou.get(parent_dn, 0) + 1
+                    if user_counts_per_ou[parent_dn] > 10:
+                        continue # Skip after 10 users in this OU
+
+                flat_map[dn] = {
+                    "title": str(label),
+                    "key": dn,
+                    "children": [],
+                    "isLeaf": is_user, # Users are leaves, OUs are folders
+                    "selectable": True
+                }
+
+            # 2. Build the hierarchy
+            tree = []
+            for dn, node in flat_map.items():
+                parts = dn.split(',', 1)
+                parent_dn = parts[1] if len(parts) > 1 else None
+                
+                if parent_dn and parent_dn in flat_map:
+                    flat_map[parent_dn]["children"].append(node)
+                else:
+                    tree.append(node)
+            
+            return tree
+    except Exception as e:
+        return {"error": str(e)}
+    try:
+        with get_conn() as conn:
             # We search for any structural object, regardless of depth
             search_filter = '(|(objectClass=organizationalUnit)(objectClass=domain)(objectClass=organization))'
             
