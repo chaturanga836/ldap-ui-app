@@ -309,8 +309,6 @@ async def get_group_details(group_name: str, page_size: int = 50, cookie: str = 
 @app.get("/api/tree")
 def get_ldap_tree():
     try:
-        # We search for all entries that act as containers
-        # Scope=SUBTREE gets everything; attributes=['ou'] identifies the branch names
         with get_conn() as conn:
             conn.search(
                 search_base=os.getenv("LDAP_SEARCH_BASE"), 
@@ -321,17 +319,18 @@ def get_ldap_tree():
         
             tree_nodes = []
             for entry in conn.entries:
-                # We want the 'title' to be the short name (e.g., 'users') 
-                # and 'key' to be the full DN for API calls
-                dn_parts = entry.entry_dn.split(',')
-                title = dn_parts[0] # Takes 'ou=users' from 'ou=users,dc=crypto,dc=lake'
-                
-                tree_nodes.append({
-                    "title": title,
-                    "key": entry.entry_dn,
-                    "isLeaf": False # Allows users to click and expand
-                })
+                # FIX: Check if entry_dn is present and is a string
+                if entry.entry_dn:
+                    dn_parts = entry.entry_dn.split(',')
+                    title = dn_parts[0] 
+                    
+                    tree_nodes.append({
+                        "title": title,
+                        "key": entry.entry_dn,
+                        "isLeaf": False 
+                    })
                 
             return tree_nodes
     except Exception as e:
+        # This will now catch the error and show it in your frontend if it still persists
         return {"error": str(e)}
