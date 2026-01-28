@@ -310,6 +310,56 @@ async def get_group_details(group_name: str, page_size: int = 50, cookie: str = 
 def get_ldap_tree():
     try:
         with get_conn() as conn:
+            # We search for any structural object, regardless of depth
+            search_filter = '(|(objectClass=organizationalUnit)(objectClass=domain)(objectClass=organization))'
+            
+            # Start search from BASE_DN (which is dynamic from your .env)
+            conn.search(
+                search_base=BASE_DN, 
+                search_filter=search_filter,
+                search_scope='SUBTREE',
+                attributes=['ou', 'dc', 'cn']
+            )
+        
+            # 1. Build a flat map of all found entries
+            flat_map = {}
+            for entry in conn.entries:
+                dn = entry.entry_dn
+                
+                # Logic to pick the best label (OU > DC > CN)
+                label = (getattr(entry, 'ou', None) or 
+                         getattr(entry, 'dc', None) or 
+                         getattr(entry, 'cn', None) or 
+                         dn.split('=')[1].split(',')[0])
+                
+                flat_map[dn] = {
+                    "title": str(label),
+                    "key": dn,
+                    "children": [],
+                    "isLeaf": False
+                }
+
+            # 2. Build the nested structure dynamically
+            tree = []
+            for dn, node in flat_map.items():
+                # Logic to find the immediate parent DN
+                # Example: 'ou=users,dc=crypto,dc=lake' -> 'dc=crypto,dc=lake'
+                parts = dn.split(',', 1)
+                parent_dn = parts[1] if len(parts) > 1 else None
+                
+                if parent_dn and parent_dn in flat_map:
+                    # If the parent exists in our results, attach to it
+                    flat_map[parent_dn]["children"].append(node)
+                else:
+                    # If no parent found in the result set, it's a top-level branch
+                    tree.append(node)
+            
+            return tree
+
+    except Exception as e:
+        return {"error": str(e)}
+    try:
+        with get_conn() as conn:
             # Focus only on the structure
             search_filter = '(&(objectClass=top)(|(objectClass=organizationalUnit)(objectClass=domain)(objectClass=organization)))'
             conn.search(BASE_DN, search_filter, search_scope='SUBTREE', attributes=['ou', 'dc'])
