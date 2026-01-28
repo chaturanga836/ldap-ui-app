@@ -310,6 +310,37 @@ async def get_group_details(group_name: str, page_size: int = 50, cookie: str = 
 def get_ldap_tree():
     try:
         with get_conn() as conn:
+            # We only want structural objects, not people
+            search_filter = '(&(objectClass=top)(|(objectClass=organizationalUnit)(objectClass=domain)(objectClass=organization)))'
+            
+            conn.search(
+                search_base=BASE_DN, 
+                search_filter=search_filter,
+                search_scope='SUBTREE',
+                attributes=['ou', 'dc']
+            )
+        
+            tree_nodes = []
+            for entry in conn.entries:
+                # Determine title
+                if hasattr(entry, 'ou') and entry.ou.value:
+                    label = entry.ou.value
+                elif hasattr(entry, 'dc') and entry.dc.value:
+                    label = entry.dc.value
+                else:
+                    label = entry.entry_dn.split(',')[0].split('=')[1]
+
+                tree_nodes.append({
+                    "title": str(label),
+                    "key": entry.entry_dn,
+                    "isLeaf": False 
+                })
+            
+            return tree_nodes
+    except Exception as e:
+        return {"error": str(e)}
+    try:
+        with get_conn() as conn:
             # 1. Use BASE_DN since we know it works for users
             search_base = BASE_DN 
             
