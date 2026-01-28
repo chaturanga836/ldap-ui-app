@@ -4,6 +4,7 @@ import base64
 import ssl
 import time
 import jwt
+import uuid
 from fastapi import FastAPI, HTTPException, Query, Body, Depends
 from ldap3 import Server, Connection, ALL, SUBTREE, MODIFY_REPLACE, Tls
 from typing import Optional, List, Dict
@@ -132,12 +133,14 @@ async def list_users(page_size: int = Query(10, ge=1, le=1000), cookie: str = No
             })
 
         # Pagination Cookie Logic
+        resp_cookie = None
         controls = conn.result.get('controls', {})
         paged_control = controls.get('1.2.840.113556.1.4.319', {})
-        resp_cookie = paged_control.get('value', {}).get('cookie')
-        new_cookie = base64.b64encode(resp_cookie).decode('utf-8') if resp_cookie else None
+        raw_cookie = paged_control.get('value', {}).get('cookie')
+        if raw_cookie:
+            resp_cookie = base64.b64encode(raw_cookie).decode('utf-8')
 
-        return {"results": results, "next_cookie": new_cookie}
+        return {"results": results, "next_cookie": resp_cookie}
 
 @app.get("/api/users/{username}")
 async def get_user(username: str):
@@ -148,14 +151,26 @@ async def get_user(username: str):
         return conn.entries[0].entry_attributes_as_dict
 
 @app.post("/api/users")
-async def add_user(username: str, attributes: Dict):
-    """Add a new user (e.g., inetOrgPerson)."""
-    user_dn = f"uid={username},ou=users,{BASE_DN}"
+async def add_user(attributes: Dict):
+    """Creates a user with an AUTO-GENERATED unique UID."""
+    # 1. Generate unique ID (7 chars random)
+    unique_id = f"u{uuid.uuid4().hex[:7]}"
+    
+    # 2. Determine target OU (from frontend or default)
+    target_base = attributes.get('base_dn', f"ou=users,{BASE_DN}")
+    user_dn = f"uid={unique_id},{target_base}"
+    
     obj_class = ['top', 'person', 'organizationalPerson', 'inetOrgPerson']
+    
+    # Remove metadata from attributes before sending to LDAP
+    if 'base_dn' in attributes: del attributes['base_dn']
+    if 'password' in attributes:
+        attributes['userPassword'] = attributes.pop('password')
+
     with get_conn() as conn:
         if not conn.add(user_dn, obj_class, attributes):
             raise HTTPException(status_code=400, detail=conn.result['description'])
-        return {"message": f"User {username} created"}
+        return {"message": f"User created with ID {unique_id}", "uid": unique_id}
 
 @app.patch("/api/users/{username}")
 async def edit_user(username: str, updates: Dict):
@@ -179,6 +194,28 @@ async def list_groups(page_size: int = Query(10, ge=1, le=1000), cookie: str = N
 
 @app.post("/api/groups")
 async def add_group(group_name: str):
+    """Create a new group with a unique ID."""
+    # 1. Generate unique Group ID (e.g., g-7a2b3c)
+    unique_group_id = f"g-{uuid.uuid4().hex[:7]}"
+    
+    # 2. Use the Unique ID for the DN to ensure it never conflicts
+    group_dn = f"cn={unique_group_id},ou=groups,{BASE_DN}"
+    
+    with get_conn() as conn:
+        attributes = {
+            'cn': unique_group_id,
+            'description': group_name,  # This stores "IT" or "Marketing"
+            'member': [ADMIN_DN]        # Required for groupOfNames
+        }
+        
+        if not conn.add(group_dn, ['top', 'groupOfNames'], attributes):
+            raise HTTPException(status_code=400, detail=conn.result['description'])
+            
+        return {
+            "message": f"Group '{group_name}' created",
+            "group_id": unique_group_id,
+            "dn": group_dn
+        }
     """Create a new group."""
     group_dn = f"cn={group_name},ou=groups,{BASE_DN}"
     with get_conn() as conn:
