@@ -310,6 +310,62 @@ async def get_group_details(group_name: str, page_size: int = 50, cookie: str = 
 def get_ldap_tree():
     try:
         with get_conn() as conn:
+            # 1. Added 'top' to catch the root entry itself
+            search_filter = '(|(objectClass=organizationalUnit)(objectClass=domain)(objectClass=organization)(objectClass=top)(objectClass=inetOrgPerson))'
+            
+            conn.search(
+                search_base=BASE_DN, 
+                search_filter=search_filter,
+                search_scope='SUBTREE',
+                attributes=['ou', 'dc', 'cn', 'objectClass']
+            )
+        
+            flat_map = {}
+            user_counts = {}
+
+            for entry in conn.entries:
+                dn = entry.entry_dn
+                is_user = 'inetOrgPerson' in entry.objectClass
+                
+                # Check for 10 user limit
+                if is_user:
+                    parent_dn = dn.split(',', 1)[1] if ',' in dn else 'root'
+                    user_counts[parent_dn] = user_counts.get(parent_dn, 0) + 1
+                    if user_counts[parent_dn] > 10:
+                        continue
+
+                # Label Logic
+                label = (getattr(entry, 'ou', None) or 
+                         getattr(entry, 'dc', None) or 
+                         getattr(entry, 'cn', None) or 
+                         dn.split('=')[1].split(',')[0])
+
+                flat_map[dn] = {
+                    "title": str(label),
+                    "key": dn,
+                    "children": [],
+                    "isLeaf": is_user,
+                    "selectable": True
+                }
+
+            # 2. Build the hierarchy
+            tree = []
+            for dn, node in flat_map.items():
+                parts = dn.split(',', 1)
+                parent_dn = parts[1] if len(parts) > 1 else None
+                
+                # IMPORTANT: Only link to parent if parent is actually in our map
+                if parent_dn and parent_dn in flat_map:
+                    flat_map[parent_dn]["children"].append(node)
+                else:
+                    # If this is the highest level we found, it becomes a root
+                    tree.append(node)
+            
+            return tree
+    except Exception as e:
+        return {"error": str(e)}
+    try:
+        with get_conn() as conn:
             # 1. Search for Folders AND People
             search_filter = '(|(objectClass=organizationalUnit)(objectClass=domain)(objectClass=inetOrgPerson))'
             
