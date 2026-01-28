@@ -310,6 +310,35 @@ async def get_group_details(group_name: str, page_size: int = 50, cookie: str = 
 def get_ldap_tree():
     try:
         with get_conn() as conn:
+            # Focus only on the structure
+            search_filter = '(&(objectClass=top)(|(objectClass=organizationalUnit)(objectClass=domain)(objectClass=organization)))'
+            conn.search(BASE_DN, search_filter, search_scope='SUBTREE', attributes=['ou', 'dc'])
+            
+            # 1. Create a dictionary of all nodes
+            nodes = {}
+            for entry in conn.entries:
+                dn = entry.entry_dn
+                label = entry.ou.value if hasattr(entry, 'ou') else (entry.dc.value if hasattr(entry, 'dc') else dn.split(',')[0].split('=')[1])
+                nodes[dn] = {"title": str(label), "key": dn, "children": [], "isLeaf": False}
+
+            # 2. Build the hierarchy
+            root_nodes = []
+            for dn, node in nodes.items():
+                # Find the parent DN (everything after the first comma)
+                parts = dn.split(',', 1)
+                parent_dn = parts[1] if len(parts) > 1 else None
+                
+                if parent_dn in nodes:
+                    nodes[parent_dn]["children"].append(node)
+                else:
+                    # If it has no parent in our list, it's a top-level root
+                    root_nodes.append(node)
+            
+            return root_nodes
+    except Exception as e:
+        return {"error": str(e)}
+    try:
+        with get_conn() as conn:
             # We only want structural objects, not people
             search_filter = '(&(objectClass=top)(|(objectClass=organizationalUnit)(objectClass=domain)(objectClass=organization)))'
             
