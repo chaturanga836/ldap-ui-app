@@ -310,6 +310,50 @@ async def get_group_details(group_name: str, page_size: int = 50, cookie: str = 
 def get_ldap_tree():
     try:
         with get_conn() as conn:
+            # 1. Use BASE_DN since we know it works for users
+            search_base = BASE_DN 
+            
+            # 2. REMOVED 'container' to fix your error. 
+            # Added 'top' and 'organization' which are standard in OpenLDAP.
+            search_filter = '(|(objectClass=organizationalUnit)(objectClass=domain)(objectClass=organization)(objectClass=top))'
+            
+            conn.search(
+                search_base=search_base, 
+                search_filter=search_filter,
+                search_scope='SUBTREE',
+                attributes=['ou', 'dc', 'cn']
+            )
+        
+            tree_nodes = []
+            for entry in conn.entries:
+                # 3. Dynamic Title Logic: Use OU if available, fallback to DC or CN
+                if hasattr(entry, 'ou') and entry.ou.value:
+                    label = entry.ou.value
+                elif hasattr(entry, 'dc') and entry.dc.value:
+                    label = entry.dc.value
+                elif hasattr(entry, 'cn') and entry.cn.value:
+                    label = entry.cn.value
+                else:
+                    # Fallback: take the first part of the DN (e.g., "ou=Users")
+                    label = entry.entry_dn.split(',')[0].split('=')[1]
+
+                tree_nodes.append({
+                    "title": str(label),
+                    "key": entry.entry_dn, # The full DN is the unique key
+                    "isLeaf": False 
+                })
+            
+            # Sort by title so the tree looks organized
+            tree_nodes.sort(key=lambda x: x['title'])
+            
+            return tree_nodes
+            
+    except Exception as e:
+        # This will help you see the exact error in your FastAPI logs
+        print(f"LDAP Tree Error: {str(e)}")
+        return {"error": str(e)}
+    try:
+        with get_conn() as conn:
             # FIX: Change os.getenv("LDAP_SEARCH_BASE") to BASE_DN
             conn.search(
                 search_base=BASE_DN, 
