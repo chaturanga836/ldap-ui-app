@@ -37,6 +37,20 @@ BASE_DN = os.getenv("BASE_DN")
 ADMIN_DN = f"cn={os.getenv('ADMIN_USER')},{BASE_DN}"
 ADMIN_PW = os.getenv("ADMIN_PW")
 
+IS_CONFIGURED = all([BASE_DN, ADMIN_DN, ADMIN_PW])
+
+def check_config():
+    """Middleware-style check to prevent LDAP calls if config is missing."""
+    if not IS_CONFIGURED:
+        raise HTTPException(
+            status_code=503, 
+            detail={
+                "error": "Configuration Required",
+                "message": "BASE_DN, ADMIN_USER, or ADMIN_PW is missing in .env",
+                "docs": "Please update your environment variables and restart the container."
+            }
+        )
+
 def get_conn():
     server = get_ldap_server()
     
