@@ -282,7 +282,7 @@ async def create_group(name: str = Body(..., embed=True), description: str = Bod
     
     with get_conn() as conn:
         # FIX: Use the constant BASE, not the string 'BASE'
-        conn.search(parent_dn, '(objectClass=*)', scope=BASE) 
+        conn.search(parent_dn, '(objectClass=*)', search_scope=BASE) 
         
         if not conn.entries:
             # Create the ou=groups if it doesn't exist
