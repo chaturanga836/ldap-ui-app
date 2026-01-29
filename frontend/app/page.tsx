@@ -14,7 +14,7 @@ interface LDAPUser {
 }
 
 export default function Dashboard() {
-  const [data, setData] = useState<LDAPUser[]>([]);
+const [data, setData] = useState<LDAPUser[]>([]);
   const [treeData, setTreeData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [treeLoading, setTreeLoading] = useState(true);
@@ -23,7 +23,7 @@ export default function Dashboard() {
   const [form] = Form.useForm();
 
   // Load Tree Data
-  const loadTree = async () => {
+const loadTree = async () => {
     setTreeLoading(true);
     try {
       const result = await ldapService.getTree();
@@ -36,55 +36,70 @@ export default function Dashboard() {
   };
 
   // Load Users (optionally filtered by DN)
-const loadUsers = async (cookie = '') => {
-  setLoading(true);
-  try {
-    // Pass the selectedDn (from your Tree state) to the API call
-    const result = await ldapService.getUsers(10, cookie, selectedDn);
-    setData(result.results);
-    // If you have pagination state, update your cookie state here too
-    // setNextCookie(result.cookie); 
-  } catch (error) {
-    message.error("Failed to fetch users from Crypto Lake");
-  } finally {
-    setLoading(false);
-  }
-};
+const loadUsers = async (dnContext?: string, cookie = '') => {
+    setLoading(true);
+    try {
+      // We pass the dnContext (selected folder) to the API
+      const result = await ldapService.getUsers(10, cookie, dnContext);
+      setData(result.results);
+    } catch (error) {
+      message.error("Failed to fetch users from Crypto Lake");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  useEffect(() => {
+useEffect(() => {
     loadTree();
     loadUsers();
   }, []);
 
-  const onTreeSelect = (selectedKeys: any) => {
+const onTreeSelect = (selectedKeys: any) => {
     if (selectedKeys.length > 0) {
       const dn = selectedKeys[0];
       setSelectedDn(dn);
-      loadUsers(dn); // Fetch users for this specific OU
+      loadUsers(dn); // Correctly passing DN as the context
     } else {
       setSelectedDn(undefined);
-      loadUsers(); // Reset to base
+      loadUsers(); 
+    }
+  }
+
+  // ... (handleCreate and handleDelete stay the same as your code) ...
+const handleCreate = async (values: any) => {
+    try {
+      const payload = { 
+        ...values, 
+        userPassword: values.password,
+        // Optional: Pass the selectedDn so user is created in the folder you are viewing
+        base_dn: selectedDn 
+      };
+      
+      await ldapService.createUser(values.uid, payload);
+      message.success(`User ${values.uid} created`);
+      
+      setIsModalOpen(false);
+      form.resetFields();
+      
+      // FIX: Refresh BOTH the list and the tree
+      loadUsers(selectedDn); 
+      loadTree(); 
+    } catch (error) { 
+      message.error("Creation failed"); 
     }
   };
 
-  // ... (handleCreate and handleDelete stay the same as your code) ...
-  const handleCreate = async (values: any) => {
-    try {
-      const payload = { ...values, userPassword: values.password };
-      await ldapService.createUser(values.uid, payload);
-      message.success(`User ${values.uid} created`);
-      setIsModalOpen(false);
-      form.resetFields();
-      loadUsers(selectedDn); 
-    } catch (error) { message.error("Creation failed"); }
-  };
-
-  const handleDelete = async (dn: string) => {
+const handleDelete = async (dn: string) => {
     try {
       await ldapService.deleteResource(dn);
       message.success("User purged");
+      
+      // FIX: Refresh BOTH the list and the tree
       loadUsers(selectedDn);
-    } catch (error) { message.error("Purge failed"); }
+      loadTree();
+    } catch (error) { 
+      message.error("Purge failed"); 
+    }
   };
 
   const columns = [
@@ -139,6 +154,7 @@ const loadUsers = async (cookie = '') => {
           rowKey="dn" 
           loading={loading}
           pagination={{ pageSize: 10 }}
+          scroll={{ y: 'calc(100vh - 250px)' }}
         />
       </Content>
 

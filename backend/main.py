@@ -10,6 +10,7 @@ from ldap3 import Server, Connection, ALL, SUBTREE, MODIFY_REPLACE, Tls
 from typing import Optional, List, Dict
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime, timedelta, timezone
 
 app = FastAPI(title="LDAP Crypto Dashboard API")
 
@@ -38,6 +39,9 @@ ADMIN_DN = f"cn={os.getenv('ADMIN_USER')},{BASE_DN}"
 ADMIN_PW = os.getenv("ADMIN_PW")
 
 IS_CONFIGURED = all([BASE_DN, ADMIN_DN, ADMIN_PW])
+
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 def check_config():
     """Middleware-style check to prevent LDAP calls if config is missing."""
@@ -88,6 +92,27 @@ def create_access_token(username: str):
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+@app.post("/api/login")
+async def login(username: str = Body(...), password: str = Body(...)):
+    # Create a DN for the user attempting to login
+    user_dn = f"cn={username},{BASE_DN}"
+    
+    try:
+        # Attempt to bind to LDAP with the provided credentials
+        server = get_ldap_server()
+        with Connection(server, user=user_dn, password=password, auto_bind=True) as conn:
+            # If bind succeeds, generate token
+            token = create_access_token(data={"sub": username})
+            return {"access_token": token, "token_type": "bearer"}
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid LDAP credentials")
+    
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
