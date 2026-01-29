@@ -100,37 +100,28 @@ def create_access_token(data: dict):
 
 @app.post("/api/login")
 async def login(username: str = Body(...), password: str = Body(...)):
-    # Create a DN for the user attempting to login
-    user_dn = f"cn={username},{BASE_DN}"
-    
-    try:
-        # Attempt to bind to LDAP with the provided credentials
-        server = get_ldap_server()
-        with Connection(server, user=user_dn, password=password, auto_bind=True) as conn:
-            # If bind succeeds, generate token
-            token = create_access_token(data={"sub": username})
-            return {"access_token": token, "token_type": "bearer"}
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid LDAP credentials")
-    
-@app.get("/api/health")
-async def health():
-    return {"status": "ok"}
-
-
-@app.post("/api/login")
-async def login(username: str = Body(...), password: str = Body(...)):
     """Authenticate via LDAP SSL and return a JWT."""
     server = get_ldap_server()
-    user_dn = f"uid={username},ou=users,{BASE_DN}"
     
-    try:
-        # Attempt to bind with user credentials
-        with Connection(server, user=user_dn, password=password, auto_bind=True) as conn:
-            token = create_access_token(username)
-            return {"access_token": token, "token_type": "bearer"}
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid LDAP Credentials")
+    # Try the most likely DN patterns
+    # 1. Standard user path: uid=admin,ou=users,dc=crypto,dc=lake
+    # 2. Root admin path: cn=admin,dc=crypto,dc=lake
+    possible_dns = [
+        f"uid={username},ou=users,{BASE_DN}",
+        f"cn={username},{BASE_DN}"
+    ]
+    
+    for user_dn in possible_dns:
+        try:
+            with Connection(server, user=user_dn, password=password, auto_bind=True) as conn:
+                # If we get here, bind was successful
+                token = create_access_token(data={"sub": username})
+                return {"access_token": token, "token_type": "bearer"}
+        except Exception:
+            continue # Try the next DN pattern
+            
+    # If all patterns fail
+    raise HTTPException(status_code=401, detail="Invalid LDAP Credentials")
 
 # Example of a protected route
 @app.get("/api/me")

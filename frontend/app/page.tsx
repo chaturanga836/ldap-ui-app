@@ -2,6 +2,10 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Tag, message, Button, Modal, Form, Input, Space, Popconfirm, Tree, Card, Layout } from 'antd';
 import { ldapService } from '@/lib/api';
+import { useIdleLogout } from '@/hooks/useIdleLogout';
+import { useRouter } from 'next/navigation';
+import { LogoutOutlined, PlusOutlined } from '@ant-design/icons';
+import Title from 'antd/es/typography/Title';
 
 const { Sider, Content } = Layout;
 
@@ -14,7 +18,12 @@ interface LDAPUser {
 }
 
 export default function Dashboard() {
-const [data, setData] = useState<LDAPUser[]>([]);
+
+  const router = useRouter();
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+
+  useIdleLogout(30);
+  const [data, setData] = useState<LDAPUser[]>([]);
   const [treeData, setTreeData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [treeLoading, setTreeLoading] = useState(true);
@@ -22,8 +31,18 @@ const [data, setData] = useState<LDAPUser[]>([]);
   const [selectedDn, setSelectedDn] = useState<string | undefined>(undefined);
   const [form] = Form.useForm();
 
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      router.replace('/login'); // Use replace so they can't click "back" to the dashboard
+    } else {
+      setIsAuthChecking(false);
+      loadTree();
+      loadUsers();
+    }
+  }, [router]);
   // Load Tree Data
-const loadTree = async () => {
+  const loadTree = async () => {
     setTreeLoading(true);
     try {
       const result = await ldapService.getTree();
@@ -35,8 +54,13 @@ const loadTree = async () => {
     }
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    router.replace('/login');
+    message.success("Logged out successfully");
+  };
   // Load Users (optionally filtered by DN)
-const loadUsers = async (dnContext?: string, cookie = '') => {
+  const loadUsers = async (dnContext?: string, cookie = '') => {
     setLoading(true);
     try {
       // We pass the dnContext (selected folder) to the API
@@ -49,56 +73,56 @@ const loadUsers = async (dnContext?: string, cookie = '') => {
     }
   };
 
-useEffect(() => {
+  useEffect(() => {
     loadTree();
     loadUsers();
   }, []);
 
-const onTreeSelect = (selectedKeys: any) => {
+  const onTreeSelect = (selectedKeys: any) => {
     if (selectedKeys.length > 0) {
       const dn = selectedKeys[0];
       setSelectedDn(dn);
       loadUsers(dn); // Correctly passing DN as the context
     } else {
       setSelectedDn(undefined);
-      loadUsers(); 
+      loadUsers();
     }
   }
 
   // ... (handleCreate and handleDelete stay the same as your code) ...
-const handleCreate = async (values: any) => {
+  const handleCreate = async (values: any) => {
     try {
-      const payload = { 
-        ...values, 
+      const payload = {
+        ...values,
         userPassword: values.password,
         // Optional: Pass the selectedDn so user is created in the folder you are viewing
-        base_dn: selectedDn 
+        base_dn: selectedDn
       };
-      
+
       await ldapService.createUser(values.uid, payload);
       message.success(`User ${values.uid} created`);
-      
+
       setIsModalOpen(false);
       form.resetFields();
-      
-      // FIX: Refresh BOTH the list and the tree
-      loadUsers(selectedDn); 
-      loadTree(); 
-    } catch (error) { 
-      message.error("Creation failed"); 
-    }
-  };
 
-const handleDelete = async (dn: string) => {
-    try {
-      await ldapService.deleteResource(dn);
-      message.success("User purged");
-      
       // FIX: Refresh BOTH the list and the tree
       loadUsers(selectedDn);
       loadTree();
-    } catch (error) { 
-      message.error("Purge failed"); 
+    } catch (error) {
+      message.error("Creation failed");
+    }
+  };
+
+  const handleDelete = async (dn: string) => {
+    try {
+      await ldapService.deleteResource(dn);
+      message.success("User purged");
+
+      // FIX: Refresh BOTH the list and the tree
+      loadUsers(selectedDn);
+      loadTree();
+    } catch (error) {
+      message.error("Purge failed");
     }
   };
 
@@ -106,9 +130,9 @@ const handleDelete = async (dn: string) => {
     { title: 'Username (UID)', dataIndex: 'uid', key: 'uid' },
     { title: 'Full Name', dataIndex: 'cn', key: 'cn' },
     { title: 'Email', dataIndex: 'mail', key: 'mail' },
-    { 
-      title: 'Role', 
-      dataIndex: 'title', 
+    {
+      title: 'Role',
+      dataIndex: 'title',
       render: (text: string) => <Tag color={text ? "blue" : "default"}>{text || 'Member'}</Tag>
     },
     {
@@ -127,7 +151,10 @@ const handleDelete = async (dn: string) => {
     <Layout style={{ minHeight: '100vh', background: '#fff' }}>
       {/* SIDEBAR TREE */}
       <Sider width={300} theme="light" style={{ borderRight: '1px solid #f0f0f0', padding: '24px' }}>
-        <h3 style={{ marginBottom: '16px' }}>Directory Structure</h3>
+        <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Title level={4} style={{ margin: 0 }}>Directory</Title>
+          <Button type="text" icon={<LogoutOutlined />} onClick={handleLogout} danger />
+        </div>
         {treeLoading ? <p>Loading tree...</p> : (
           <Tree
             treeData={treeData}
@@ -142,16 +169,18 @@ const handleDelete = async (dn: string) => {
       <Content style={{ padding: '24px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
           <div>
-            <h1>User Management</h1>
-            <p style={{ color: '#888' }}>{selectedDn ? `Viewing: ${selectedDn}` : "Viewing all users"}</p>
+            <Title level={2}>User Management</Title>
+            <Tag color="blue">{selectedDn ? `OU: ${selectedDn}` : "Root Directory"}</Tag>
           </div>
-          <Button type="primary" onClick={() => setIsModalOpen(true)}>+ Add User</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)}>
+            Add User
+          </Button>
         </div>
 
-        <Table 
-          columns={columns} 
-          dataSource={data} 
-          rowKey="dn" 
+        <Table
+          columns={columns}
+          dataSource={data}
+          rowKey="dn"
           loading={loading}
           pagination={{ pageSize: 10 }}
           scroll={{ y: 'calc(100vh - 250px)' }}
