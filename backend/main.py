@@ -6,8 +6,8 @@ import time
 import jwt
 import uuid
 from fastapi import FastAPI, HTTPException, Query, Body, Depends
-from ldap3 import Server, Connection, ALL, SUBTREE, MODIFY_REPLACE, Tls
-from typing import Optional, List, Dict
+from ldap3 import Server, Connection, ALL, BASE, SUBTREE, MODIFY_REPLACE, Tls
+from typing import Dict
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta, timezone
@@ -272,32 +272,32 @@ async def list_groups(page_size: int = Query(10, ge=1, le=1000), cookie: str = N
 
         return {"results": results, "next_cookie": resp_cookie}
     
+# 1. Make sure you have the import at the top of main.py
+
+# 2. Update the search line in create_group
 @app.post("/api/groups")
 async def create_group(name: str = Body(..., embed=True), description: str = Body(None, embed=True)):
     parent_dn = f"ou=groups,{BASE_DN}"
     group_dn = f"cn={name},{parent_dn}"
     
     with get_conn() as conn:
-        # 1. Check if the 'ou=groups' folder exists, if not, create it
-        if not conn.search(parent_dn, '(objectClass=*)', scope='BASE'):
-            print(f"Creating missing container: {parent_dn}")
+        # FIX: Use the constant BASE, not the string 'BASE'
+        conn.search(parent_dn, '(objectClass=*)', scope=BASE) 
+        
+        if not conn.entries:
+            # Create the ou=groups if it doesn't exist
             conn.add(parent_dn, ['top', 'organizationalUnit'], {'ou': 'groups'})
 
-        # 2. Now try to create the group
         attributes = {
             'cn': name,
             'description': description or "Crypto Lake Group",
-            'member': [ADMIN_DN]  # Ensure this DN exists!
+            'member': [ADMIN_DN] 
         }
         
-        # Try the 'Standard' version first to avoid schema issues
-        object_classes = ['top', 'groupOfNames']
-        
-        if not conn.add(group_dn, object_classes, attributes):
-            error_msg = conn.result.get('description', 'Unknown Error')
-            raise HTTPException(status_code=400, detail=error_msg)
+        if not conn.add(group_dn, ['top', 'groupOfNames'], attributes):
+            return {"status": "error", "detail": conn.result.get('description')}
             
-        return {"message": "Group created successfully"}
+        return {"status": "success", "dn": group_dn}
      
 
 @app.delete("/api/resource")
