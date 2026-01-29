@@ -16,11 +16,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       // 1. Call your backend login endpoint
-      const response = await fetch('http://144.24.127.112:8000/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
-      });
+      const response = await ldapService.login(values.username, values.password);
 
       if (!response.ok) throw new Error('Invalid credentials');
 
@@ -30,7 +26,7 @@ export default function LoginPage() {
       localStorage.setItem('token', data.access_token);
       
       message.success('Welcome to LDAP Admin');
-      router.push('/dashboard'); // Redirect to your main app
+      router.push('/'); // Redirect to your main app
     } catch (error) {
       message.error('Authentication failed. Please check your LDAP credentials.');
     } finally {
@@ -44,7 +40,7 @@ export default function LoginPage() {
         <Card style={{ width: 400, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
             <DatabaseOutlined style={{ fontSize: 40, color: '#1890ff' }} />
-            <Title level={3} style={{ marginTop: 12 }}>LDAP Manager</Title>
+            <Title level={3} style={{ marginTop: 12 }}>LDAP</Title>
             <Text type="secondary">LDAP Directory Management</Text>
           </div>
 

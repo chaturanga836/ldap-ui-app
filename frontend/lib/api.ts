@@ -1,6 +1,16 @@
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || ''; // Relative paths work because Nginx proxies /api
 
 export const ldapService = {
+    login: async (username: string, password: string) => {
+        const url = `${BASE_URL}/api/login`;
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password }),
+        });
+        if (!res.ok) throw new Error('Login failed');
+        return res.json();
+    },
   // --- USER METHODS ---
     getUsers: async (pageSize = 10, cookie = '', parentDn = '') => {
     // Build query parameters
