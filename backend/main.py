@@ -271,39 +271,24 @@ async def list_groups(page_size: int = Query(10, ge=1, le=1000), cookie: str = N
             resp_cookie = base64.b64encode(raw_cookie).decode('utf-8')
 
         return {"results": results, "next_cookie": resp_cookie}
+    
 @app.post("/api/groups")
 async def create_group(name: str = Body(..., embed=True), description: str = Body(None, embed=True)):
     group_dn = f"cn={name},ou=groups,{BASE_DN}"
     
     with get_conn() as conn:
-        # 1. Fetch next GID so we don't violate posixGroup schema
-        conn.search(f"ou=groups,{BASE_DN}", '(objectClass=posixGroup)', attributes=['gidNumber'])
-        gids = [int(e.gidNumber.value) for e in conn.entries if hasattr(e, 'gidNumber')]
-        next_gid = str(max(gids + [5000]) + 1) # Must be a string for the LDAP attribute
-
-        # 2. Build the attribute list with ALL mandatory fields
         attributes = {
             'cn': name,
-            'description': description or f"Crypto Lake {name}",
-            'gidNumber': next_gid,
-            # CRITICAL: 'member' must contain a DN that actually exists
-            'member': [ADMIN_DN], 
-            # Some schemas also require memberUid for posixGroups
-            'memberUid': ['admin'] 
+            'description': description or "Standard Group",
+            'member': [ADMIN_DN]  # groupOfNames MUST have a member
         }
+        # Use ONLY groupOfNames first
+        object_classes = ['top', 'groupOfNames']
         
-        # 3. Apply the classes
-        object_classes = ['top', 'groupOfNames', 'posixGroup']
-        
-        success = conn.add(group_dn, object_classes, attributes)
-        
-        if not success:
-            # Check if it's a schema issue or a parent naming issue
-            error_detail = conn.result.get('description', 'Unknown LDAP Error')
-            raise HTTPException(status_code=400, detail=error_detail)
+        if not conn.add(group_dn, object_classes, attributes):
+            raise HTTPException(status_code=400, detail=conn.result['description'])
             
-        return {"message": "Hybrid Group Created", "gid": next_gid}
-# --- DISABLE / DELETE ---
+        return {"message": "Standard groupOfNames created successfully"}
 
 @app.delete("/api/resource")
 async def remove_resource(dn: str):
