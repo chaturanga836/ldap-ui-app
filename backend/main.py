@@ -298,7 +298,8 @@ async def create_group(name: str = Body(..., embed=True), description: str = Bod
             raise HTTPException(status_code=400, detail=error_msg)
             
         return {"message": "Group created successfully"}
-    
+     
+
 @app.delete("/api/resource")
 async def remove_resource(dn: str):
     """Deletion for either user or group based on DN."""
