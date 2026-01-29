@@ -29,7 +29,7 @@ export default function LoginPage() {
       // 2. Store the JWT Token
       localStorage.setItem('token', data.access_token);
       
-      message.success('Welcome to Crypto Lake Admin');
+      message.success('Welcome to LDAP Admin');
       router.push('/dashboard'); // Redirect to your main app
     } catch (error) {
       message.error('Authentication failed. Please check your LDAP credentials.');
@@ -44,7 +44,7 @@ export default function LoginPage() {
         <Card style={{ width: 400, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
             <DatabaseOutlined style={{ fontSize: 40, color: '#1890ff' }} />
-            <Title level={3} style={{ marginTop: 12 }}>Crypto Lake</Title>
+            <Title level={3} style={{ marginTop: 12 }}>LDAP Manager</Title>
             <Text type="secondary">LDAP Directory Management</Text>
           </div>
 
