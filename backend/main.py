@@ -230,48 +230,68 @@ async def update_user(uid: str, updates: Dict):
 
 @app.get("/api/groups")
 async def list_groups(page_size: int = Query(10, ge=1, le=1000), cookie: str = None):
-    """List all groups (Hybrid) with pagination and detailed metadata."""
-    decoded_cookie = base64.b64decode(cookie) if cookie else None
+    # Fix 1: Safer cookie decoding
+    decoded_cookie = None
+    if cookie and cookie != "null" and cookie != "undefined":
+        try:
+            decoded_cookie = base64.b64decode(cookie)
+        except Exception:
+            decoded_cookie = None
     
-    # Filter for any type of group we might be using
     search_filter = '(|(objectClass=groupOfNames)(objectClass=posixGroup))'
-    attrs = ['cn', 'description', 'gidNumber', 'member', 'memberUid']
+    attrs = ['cn', 'description', 'gidNumber', 'member', 'memberUid', 'objectClass']
 
-    with get_conn() as conn:
-        conn.search(
-            BASE_DN, 
-            search_filter, 
-            SUBTREE, 
-            attributes=attrs,
-            paged_size=page_size, 
-            paged_cookie=decoded_cookie
-        )
-        
-        results = []
-        for e in conn.entries:
-            # Safely extract members (groupOfNames use 'member', posix use 'memberUid')
-            members = e.member.values if hasattr(e, 'member') else []
-            posix_members = e.memberUid.values if hasattr(e, 'memberUid') else []
+    try:
+        with get_conn() as conn:
+            # Fix 2: Explicitly use search_scope=SUBTREE
+            conn.search(
+                BASE_DN, 
+                search_filter, 
+                search_scope=SUBTREE, # Changed from positional to keyword
+                attributes=attrs,
+                paged_size=page_size, 
+                paged_cookie=decoded_cookie
+            )
             
-            results.append({
-                "dn": e.entry_dn,
-                "cn": str(e.cn),
-                "description": str(e.description) if hasattr(e, 'description') else "",
-                "gidNumber": int(e.gidNumber.value) if hasattr(e, 'gidNumber') else None,
-                "memberCount": len(set(members + posix_members)), # Total unique members
-                "type": "Hybrid" if ('posixGroup' in e.objectClass and 'groupOfNames' in e.objectClass) else "Standard"
-            })
+            results = []
+            for e in conn.entries:
+                # Fix 3: Safer attribute extraction
+                members = e.member.values if hasattr(e, 'member') else []
+                posix_members = e.memberUid.values if hasattr(e, 'memberUid') else []
+                
+                # Check for gidNumber safely
+                gid = None
+                if hasattr(e, 'gidNumber') and e.gidNumber.value:
+                    try:
+                        gid = int(e.gidNumber.value)
+                    except (ValueError, TypeError):
+                        gid = None
 
-        # Pagination Cookie Logic
-        resp_cookie = None
-        controls = conn.result.get('controls', {})
-        paged_control = controls.get('1.2.840.113556.1.4.319', {})
-        raw_cookie = paged_control.get('value', {}).get('cookie')
-        if raw_cookie:
-            resp_cookie = base64.b64encode(raw_cookie).decode('utf-8')
+                results.append({
+                    "dn": e.entry_dn,
+                    "cn": str(e.cn.value) if hasattr(e, 'cn') else "Unknown",
+                    "description": str(e.description.value) if hasattr(e, 'description') else "",
+                    "gidNumber": gid,
+                    "memberCount": len(set(list(members) + list(posix_members))),
+                    "type": "Hybrid" if ('posixGroup' in e.objectClass.values and 'groupOfNames' in e.objectClass.values) else "Standard"
+                })
 
-        return {"results": results, "next_cookie": resp_cookie}
-    
+            # Fix 4: Safer Pagination extraction
+            resp_cookie = None
+            controls = conn.result.get('controls', {})
+            # Look for the paged results control OID
+            paged_control = controls.get('1.2.840.113556.1.4.319', {}).get('value', {})
+            
+            # Support both library versions of cookie storage
+            raw_cookie = paged_control.get('cookie') if isinstance(paged_control, dict) else None
+            if raw_cookie:
+                resp_cookie = base64.b64encode(raw_cookie).decode('utf-8')
+
+            return {"results": results, "next_cookie": resp_cookie}
+            
+    except Exception as e:
+        print(f"LIST GROUPS CRASH: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"LDAP Error: {str(e)}") 
 # 1. Make sure you have the import at the top of main.py
 
 # 2. Update the search line in create_group
