@@ -274,22 +274,31 @@ async def list_groups(page_size: int = Query(10, ge=1, le=1000), cookie: str = N
     
 @app.post("/api/groups")
 async def create_group(name: str = Body(..., embed=True), description: str = Body(None, embed=True)):
-    group_dn = f"cn={name},ou=groups,{BASE_DN}"
+    parent_dn = f"ou=groups,{BASE_DN}"
+    group_dn = f"cn={name},{parent_dn}"
     
     with get_conn() as conn:
+        # 1. Check if the 'ou=groups' folder exists, if not, create it
+        if not conn.search(parent_dn, '(objectClass=*)', scope='BASE'):
+            print(f"Creating missing container: {parent_dn}")
+            conn.add(parent_dn, ['top', 'organizationalUnit'], {'ou': 'groups'})
+
+        # 2. Now try to create the group
         attributes = {
             'cn': name,
-            'description': description or "Standard Group",
-            'member': [ADMIN_DN]  # groupOfNames MUST have a member
+            'description': description or "Crypto Lake Group",
+            'member': [ADMIN_DN]  # Ensure this DN exists!
         }
-        # Use ONLY groupOfNames first
+        
+        # Try the 'Standard' version first to avoid schema issues
         object_classes = ['top', 'groupOfNames']
         
         if not conn.add(group_dn, object_classes, attributes):
-            raise HTTPException(status_code=400, detail=conn.result['description'])
+            error_msg = conn.result.get('description', 'Unknown Error')
+            raise HTTPException(status_code=400, detail=error_msg)
             
-        return {"message": "Standard groupOfNames created successfully"}
-
+        return {"message": "Group created successfully"}
+    
 @app.delete("/api/resource")
 async def remove_resource(dn: str):
     """Deletion for either user or group based on DN."""
