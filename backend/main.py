@@ -271,7 +271,6 @@ async def list_groups(page_size: int = Query(10, ge=1, le=1000), cookie: str = N
             resp_cookie = base64.b64encode(raw_cookie).decode('utf-8')
 
         return {"results": results, "next_cookie": resp_cookie}
-
 @app.post("/api/groups")
 async def create_group(name: str = Body(..., embed=True), description: str = Body(None, embed=True)):
     group_dn = f"cn={name},ou=groups,{BASE_DN}"
