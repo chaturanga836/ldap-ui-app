@@ -274,38 +274,36 @@ async def list_groups(page_size: int = Query(10, ge=1, le=1000), cookie: str = N
 
 @app.post("/api/groups")
 async def create_group(name: str = Body(..., embed=True), description: str = Body(None, embed=True)):
-    """Creates a Hybrid Group (groupOfNames + posixGroup) in ou=groups."""
     group_dn = f"cn={name},ou=groups,{BASE_DN}"
     
     with get_conn() as conn:
-        # 1. Logic to find the next available gidNumber
-        # We search all groups to find the highest gidNumber
+        # 1. Fetch next GID so we don't violate posixGroup schema
         conn.search(f"ou=groups,{BASE_DN}", '(objectClass=posixGroup)', attributes=['gidNumber'])
-        existing_ids = [int(e.gidNumber.value) for e in conn.entries if hasattr(e, 'gidNumber')]
-        next_gid = max(existing_ids + [5000]) + 1 
+        gids = [int(e.gidNumber.value) for e in conn.entries if hasattr(e, 'gidNumber')]
+        next_gid = str(max(gids + [5000]) + 1) # Must be a string for the LDAP attribute
 
-        # 2. Hybrid Attributes
+        # 2. Build the attribute list with ALL mandatory fields
         attributes = {
             'cn': name,
-            'description': description or f"Crypto Lake {name} Group",
+            'description': description or f"Crypto Lake {name}",
             'gidNumber': next_gid,
-            'member': [ADMIN_DN], # Required for groupOfNames
-            # Note: memberUid is usually the username string, not the DN
-            'memberUid': [os.getenv('ADMIN_USER')] 
+            # CRITICAL: 'member' must contain a DN that actually exists
+            'member': [ADMIN_DN], 
+            # Some schemas also require memberUid for posixGroups
+            'memberUid': ['admin'] 
         }
         
-        # 3. Add with both Object Classes
+        # 3. Apply the classes
         object_classes = ['top', 'groupOfNames', 'posixGroup']
         
-        if not conn.add(group_dn, object_classes, attributes):
-            raise HTTPException(status_code=400, detail=conn.result['description'])
+        success = conn.add(group_dn, object_classes, attributes)
+        
+        if not success:
+            # Check if it's a schema issue or a parent naming issue
+            error_detail = conn.result.get('description', 'Unknown LDAP Error')
+            raise HTTPException(status_code=400, detail=error_detail)
             
-        return {
-            "message": f"Hybrid Group '{name}' created",
-            "dn": group_dn,
-            "gid": next_gid
-        }
-
+        return {"message": "Hybrid Group Created", "gid": next_gid}
 # --- DISABLE / DELETE ---
 
 @app.delete("/api/resource")
