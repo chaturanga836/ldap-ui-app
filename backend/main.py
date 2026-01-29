@@ -202,57 +202,109 @@ async def add_user(attributes: Dict):
             raise HTTPException(status_code=400, detail=conn.result['description'])
         return {"message": f"User created with ID {unique_id}", "uid": unique_id}
 
-@app.patch("/api/users/{username}")
-async def edit_user(username: str, updates: Dict):
-    """Modify user attributes."""
-    user_dn = f"uid={username},ou=users,{BASE_DN}"
-    changes = {k: [(MODIFY_REPLACE, [v])] for k, v in updates.items()}
+@app.patch("/api/users/{uid}")
+async def update_user(uid: str, updates: Dict):
+    """
+    Search for the user by UID to get their full DN, then apply changes.
+    """
     with get_conn() as conn:
-        if not conn.modify(user_dn, changes):
+        # 1. Find the user's DN
+        conn.search(BASE_DN, f'(uid={uid})', SUBTREE)
+        if not conn.entries:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        user_dn = conn.entries[0].entry_dn
+        
+        # 2. Format changes for LDAP
+        # We filter out sensitive or immutable keys like 'uid' or 'dn'
+        ldap_changes = {}
+        for k, v in updates.items():
+            if k not in ['dn', 'uid', 'objectClass'] and v:
+                ldap_changes[k] = [(MODIFY_REPLACE, [str(v)])]
+
+        if not conn.modify(user_dn, ldap_changes):
             raise HTTPException(status_code=400, detail=conn.result['description'])
-        return {"message": "User updated"}
+        return {"message": "User updated successfully"}
 
 # --- GROUP APIS ---
 
 @app.get("/api/groups")
 async def list_groups(page_size: int = Query(10, ge=1, le=1000), cookie: str = None):
-    """List all groups with pagination."""
+    """List all groups (Hybrid) with pagination and detailed metadata."""
     decoded_cookie = base64.b64decode(cookie) if cookie else None
+    
+    # Filter for any type of group we might be using
+    search_filter = '(|(objectClass=groupOfNames)(objectClass=posixGroup))'
+    attrs = ['cn', 'description', 'gidNumber', 'member', 'memberUid']
+
     with get_conn() as conn:
-        conn.search(BASE_DN, '(objectClass=groupOfNames)', SUBTREE, paged_size=page_size, paged_cookie=decoded_cookie)
-        return {"results": [e.entry_dn for e in conn.entries]}
+        conn.search(
+            BASE_DN, 
+            search_filter, 
+            SUBTREE, 
+            attributes=attrs,
+            paged_size=page_size, 
+            paged_cookie=decoded_cookie
+        )
+        
+        results = []
+        for e in conn.entries:
+            # Safely extract members (groupOfNames use 'member', posix use 'memberUid')
+            members = e.member.values if hasattr(e, 'member') else []
+            posix_members = e.memberUid.values if hasattr(e, 'memberUid') else []
+            
+            results.append({
+                "dn": e.entry_dn,
+                "cn": str(e.cn),
+                "description": str(e.description) if hasattr(e, 'description') else "",
+                "gidNumber": int(e.gidNumber.value) if hasattr(e, 'gidNumber') else None,
+                "memberCount": len(set(members + posix_members)), # Total unique members
+                "type": "Hybrid" if ('posixGroup' in e.objectClass and 'groupOfNames' in e.objectClass) else "Standard"
+            })
+
+        # Pagination Cookie Logic
+        resp_cookie = None
+        controls = conn.result.get('controls', {})
+        paged_control = controls.get('1.2.840.113556.1.4.319', {})
+        raw_cookie = paged_control.get('value', {}).get('cookie')
+        if raw_cookie:
+            resp_cookie = base64.b64encode(raw_cookie).decode('utf-8')
+
+        return {"results": results, "next_cookie": resp_cookie}
 
 @app.post("/api/groups")
-async def add_group(group_name: str):
-    """Create a new group with a unique ID."""
-    # 1. Generate unique Group ID (e.g., g-7a2b3c)
-    unique_group_id = f"g-{uuid.uuid4().hex[:7]}"
-    
-    # 2. Use the Unique ID for the DN to ensure it never conflicts
-    group_dn = f"cn={unique_group_id},ou=groups,{BASE_DN}"
+async def create_group(name: str = Body(..., embed=True), description: str = Body(None, embed=True)):
+    """Creates a Hybrid Group (groupOfNames + posixGroup) in ou=groups."""
+    group_dn = f"cn={name},ou=groups,{BASE_DN}"
     
     with get_conn() as conn:
+        # 1. Logic to find the next available gidNumber
+        # We search all groups to find the highest gidNumber
+        conn.search(f"ou=groups,{BASE_DN}", '(objectClass=posixGroup)', attributes=['gidNumber'])
+        existing_ids = [int(e.gidNumber.value) for e in conn.entries if hasattr(e, 'gidNumber')]
+        next_gid = max(existing_ids + [5000]) + 1 
+
+        # 2. Hybrid Attributes
         attributes = {
-            'cn': unique_group_id,
-            'description': group_name,  # This stores "IT" or "Marketing"
-            'member': [ADMIN_DN]        # Required for groupOfNames
+            'cn': name,
+            'description': description or f"Crypto Lake {name} Group",
+            'gidNumber': next_gid,
+            'member': [ADMIN_DN], # Required for groupOfNames
+            # Note: memberUid is usually the username string, not the DN
+            'memberUid': [os.getenv('ADMIN_USER')] 
         }
         
-        if not conn.add(group_dn, ['top', 'groupOfNames'], attributes):
+        # 3. Add with both Object Classes
+        object_classes = ['top', 'groupOfNames', 'posixGroup']
+        
+        if not conn.add(group_dn, object_classes, attributes):
             raise HTTPException(status_code=400, detail=conn.result['description'])
             
         return {
-            "message": f"Group '{group_name}' created",
-            "group_id": unique_group_id,
-            "dn": group_dn
+            "message": f"Hybrid Group '{name}' created",
+            "dn": group_dn,
+            "gid": next_gid
         }
-    """Create a new group."""
-    group_dn = f"cn={group_name},ou=groups,{BASE_DN}"
-    with get_conn() as conn:
-        # groupOfNames requires at least one member (usually the admin)
-        if not conn.add(group_dn, ['top', 'groupOfNames'], {'member': [ADMIN_DN]}):
-            raise HTTPException(status_code=400, detail=conn.result['description'])
-        return {"message": f"Group {group_name} created"}
 
 # --- DISABLE / DELETE ---
 
@@ -336,6 +388,27 @@ async def search_groups(
             "results": [{"dn": e.entry_dn, "cn": e.cn.value} for e in conn.entries],
             "next_cookie": new_cookie
         }
+
+@app.delete("/api/groups/{cn}")
+async def delete_group(cn: str):
+    """Deletes a group entry from the ou=groups container."""
+    # Construct the group DN
+    group_dn = f"cn={cn},ou=groups,{BASE_DN}"
+    
+    with get_conn() as conn:
+        # Check if it exists first to give a better error message
+        if not conn.search(group_dn, '(objectClass=*)', scope=BASE):
+            raise HTTPException(status_code=404, detail=f"Group '{cn}' not found.")
+        
+        # Perform the delete
+        if not conn.delete(group_dn):
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Failed to delete group: {conn.result['description']}"
+            )
+            
+        return {"message": f"Group '{cn}' deleted successfully"}
+        
 @app.get("/api/users/{username}/groups")
 async def get_user_groups(username: str):
     """

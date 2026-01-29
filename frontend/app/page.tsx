@@ -1,12 +1,13 @@
 "use client";
-import React, { useEffect, useState } from 'react';
-import { Table, Tag, message, Button, Modal, Form, Input, Space, Popconfirm, Tree, Card, Layout } from 'antd';
+import React, { useEffect, useState, useCallback } from 'react';
+import { Table, Tag, message, Button, Modal, Form, Input, Space, Popconfirm, Tree, Layout, Flex, Menu } from 'antd';
 import { ldapService } from '@/lib/api';
 import { useIdleLogout } from '@/hooks/useIdleLogout';
 import { useRouter } from 'next/navigation';
-import { LogoutOutlined, PlusOutlined } from '@ant-design/icons';
-import Title from 'antd/es/typography/Title';
+import { LogoutOutlined, PlusOutlined, UserOutlined, TeamOutlined } from '@ant-design/icons';
+import Typography from 'antd/es/typography';
 
+const { Title, Text } = Typography;
 const { Sider, Content } = Layout;
 
 interface LDAPUser {
@@ -18,186 +19,232 @@ interface LDAPUser {
 }
 
 export default function Dashboard() {
-
   const router = useRouter();
-  const [isAuthChecking, setIsAuthChecking] = useState(true);
-
   useIdleLogout(30);
-  const [data, setData] = useState<LDAPUser[]>([]);
-  const [treeData, setTreeData] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [treeLoading, setTreeLoading] = useState(true);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedDn, setSelectedDn] = useState<string | undefined>(undefined);
-  const [form] = Form.useForm();
 
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      router.replace('/login'); // Use replace so they can't click "back" to the dashboard
-    } else {
-      setIsAuthChecking(false);
-      loadTree();
-      loadUsers();
-    }
-  }, [router]);
-  // Load Tree Data
-  const loadTree = async () => {
-    setTreeLoading(true);
+  // --- UI State ---
+  const [viewMode, setViewMode] = useState<'users' | 'groups'>('users');
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
+
+  // --- Data State ---
+  const [users, setUsers] = useState<LDAPUser[]>([]);
+  const [groups, setGroups] = useState<any[]>([]);
+  const [treeData, setTreeData] = useState([]);
+  const [selectedDn, setSelectedDn] = useState<string | undefined>(undefined);
+  const [editingUser, setEditingUser] = useState<LDAPUser | null>(null);
+
+  const [form] = Form.useForm();
+  const [groupForm] = Form.useForm();
+
+  // --- Loaders ---
+  const loadTree = useCallback(async () => {
     try {
       const result = await ldapService.getTree();
       setTreeData(result);
     } catch (error) {
       message.error("Failed to load directory tree");
-    } finally {
-      setTreeLoading(false);
     }
-  };
+  }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    router.replace('/login');
-    message.success("Logged out successfully");
-  };
-  // Load Users (optionally filtered by DN)
-  const loadUsers = async (dnContext?: string, cookie = '') => {
+  const loadUsers = useCallback(async (dnContext?: string) => {
     setLoading(true);
     try {
-      // We pass the dnContext (selected folder) to the API
-      const result = await ldapService.getUsers(10, cookie, dnContext);
-      setData(result.results);
+      const result = await ldapService.getUsers(50, '', dnContext);
+      setUsers(result.results);
     } catch (error) {
-      message.error("Failed to fetch users from Crypto Lake");
+      message.error("Failed to fetch users");
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    loadTree();
-    loadUsers();
   }, []);
 
-  const onTreeSelect = (selectedKeys: any) => {
-    if (selectedKeys.length > 0) {
-      const dn = selectedKeys[0];
-      setSelectedDn(dn);
-      loadUsers(dn); // Correctly passing DN as the context
-    } else {
-      setSelectedDn(undefined);
-      loadUsers();
-    }
-  }
-
-  // ... (handleCreate and handleDelete stay the same as your code) ...
-  const handleCreate = async (values: any) => {
+  const loadGroups = useCallback(async () => {
+    setLoading(true);
     try {
-      const payload = {
-        ...values,
-        userPassword: values.password,
-        // Optional: Pass the selectedDn so user is created in the folder you are viewing
-        base_dn: selectedDn
-      };
+      const data = await ldapService.getGroups();
+      setGroups(data.results || []);
+    } catch (err) {
+      message.error("Failed to load groups");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-      await ldapService.createUser(values.uid, payload);
-      message.success(`User ${values.uid} created`);
+  // --- Auth & Initial Init ---
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      router.replace('/login');
+    } else {
+      setIsAuthChecking(false);
+      loadTree();
+      loadUsers();
+      loadGroups();
+    }
+  }, [router, loadTree, loadUsers, loadGroups]);
 
+  // --- Actions ---
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    router.replace('/login');
+    message.success("Logged out");
+  };
+
+  const handleUserSubmit = async (values: any) => {
+    try {
+      if (editingUser) {
+        await ldapService.updateUser(editingUser.uid, values);
+        message.success("User updated");
+      } else {
+        await ldapService.createUser(values.uid, { ...values, base_dn: selectedDn });
+        message.success("User created");
+      }
       setIsModalOpen(false);
+      setEditingUser(null);
       form.resetFields();
-
-      // FIX: Refresh BOTH the list and the tree
       loadUsers(selectedDn);
       loadTree();
     } catch (error) {
-      message.error("Creation failed");
+      message.error("Operation failed");
     }
   };
 
-  const handleDelete = async (dn: string) => {
+  const handleDeleteUser = async (dn: string) => {
     try {
       await ldapService.deleteResource(dn);
-      message.success("User purged");
-
-      // FIX: Refresh BOTH the list and the tree
+      message.success("User removed");
       loadUsers(selectedDn);
       loadTree();
     } catch (error) {
-      message.error("Purge failed");
+      message.error("Delete failed");
     }
   };
 
-  const columns = [
-    { title: 'Username (UID)', dataIndex: 'uid', key: 'uid' },
+  const handleGroupSubmit = async (values: any) => {
+    try {
+      await ldapService.createGroup(values.name, values.description);
+      message.success(`Group ${values.name} created`);
+      setIsGroupModalOpen(false);
+      groupForm.resetFields();
+      loadGroups();
+    } catch (err) {
+      message.error("Failed to create group");
+    }
+  };
+
+  // --- Table Definitions ---
+  const userColumns = [
+    { title: 'Username', dataIndex: 'uid', key: 'uid' },
     { title: 'Full Name', dataIndex: 'cn', key: 'cn' },
     { title: 'Email', dataIndex: 'mail', key: 'mail' },
-    {
-      title: 'Role',
-      dataIndex: 'title',
-      render: (text: string) => <Tag color={text ? "blue" : "default"}>{text || 'Member'}</Tag>
-    },
-    {
-      title: 'Action',
+    { 
+      title: 'Action', 
       render: (_: any, record: LDAPUser) => (
-        <Space size="middle">
-          <Popconfirm title="Delete user" onConfirm={() => handleDelete(record.dn)}>
+        <Space>
+          <Button type="link" onClick={() => { setEditingUser(record); form.setFieldsValue(record); setIsModalOpen(true); }}>Edit</Button>
+          <Popconfirm title="Delete user?" onConfirm={() => handleDeleteUser(record.dn)}>
             <Button type="link" danger>Delete</Button>
           </Popconfirm>
         </Space>
-      ),
+      ) 
     },
   ];
 
+  const groupColumns = [
+    { title: 'Group Name', dataIndex: 'cn', key: 'cn' },
+    { title: 'Type', dataIndex: 'type', key: 'type', render: (t: string) => <Tag color="purple">{t}</Tag> },
+    { title: 'GID', dataIndex: 'gidNumber', key: 'gidNumber' },
+    { title: 'Members', dataIndex: 'memberCount', key: 'memberCount' },
+    { 
+        title: 'Action', 
+        render: (_: any, record: any) => (
+          <Button type="link" danger onClick={async () => {
+            await ldapService.deleteGroup(record.cn);
+            loadGroups();
+          }}>Delete</Button>
+        ) 
+    },
+  ];
+
+  if (isAuthChecking) return null;
+
   return (
-    <Layout style={{ minHeight: '100vh', background: '#fff' }}>
-      {/* SIDEBAR TREE */}
-      <Sider width={300} theme="light" style={{ borderRight: '1px solid #f0f0f0', padding: '24px' }}>
-        <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Title level={4} style={{ margin: 0 }}>Directory</Title>
+    <Layout style={{ minHeight: '100vh' }}>
+      <Sider width={280} theme="light" style={{ borderRight: '1px solid #f0f0f0' }}>
+        <div style={{ padding: '24px', display: 'flex', justifyContent: 'space-between' }}>
+          <Title level={4} style={{ margin: 0 }}>Crypto Lake</Title>
           <Button type="text" icon={<LogoutOutlined />} onClick={handleLogout} danger />
         </div>
-        {treeLoading ? <p>Loading tree...</p> : (
-          <Tree
-            treeData={treeData}
-            onSelect={onTreeSelect}
-            defaultExpandAll
-            showLine={{ showLeafIcon: false }}
-          />
+        
+        <Menu
+          mode="inline"
+          selectedKeys={[viewMode]}
+          onClick={(e) => setViewMode(e.key as any)}
+          items={[
+            { key: 'users', icon: <UserOutlined />, label: 'Users' },
+            { key: 'groups', icon: <TeamOutlined />, label: 'Groups' },
+          ]}
+        />
+
+        {viewMode === 'users' && (
+          <div style={{ padding: '0 24px 24px' }}>
+            <Divider style={{ margin: '12px 0' }} />
+            <Text type="secondary" style={{ fontSize: '12px' }}>ORGANIZATION TREE</Text>
+            <Tree 
+              treeData={treeData} 
+              onSelect={(keys) => { setSelectedDn(keys[0] as string); loadUsers(keys[0] as string); }} 
+              style={{ marginTop: '12px' }}
+            />
+          </div>
         )}
       </Sider>
 
-      {/* MAIN CONTENT */}
-      <Content style={{ padding: '24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+      <Content style={{ padding: '32px', background: '#fafafa' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
           <div>
-            <Title level={2}>User Management</Title>
-            <Tag color="blue">{selectedDn ? `OU: ${selectedDn}` : "Root Directory"}</Tag>
+            <Title level={2}>{viewMode === 'users' ? 'User Management' : 'Group Management'}</Title>
+            <Text type="secondary">{selectedDn || 'Global Directory'}</Text>
           </div>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)}>
-            Add User
+          <Button 
+            type="primary" 
+            icon={<PlusOutlined />} 
+            onClick={() => viewMode === 'users' ? setIsModalOpen(true) : setIsGroupModalOpen(true)}
+          >
+            New {viewMode === 'users' ? 'User' : 'Group'}
           </Button>
         </div>
 
         <Table
-          columns={columns}
-          dataSource={data}
+          dataSource={viewMode === 'users' ? users : groups}
+          columns={viewMode === 'users' ? userColumns : groupColumns}
           rowKey="dn"
           loading={loading}
-          pagination={{ pageSize: 10 }}
-          scroll={{ y: 'calc(100vh - 250px)' }}
+          style={{ background: '#fff', borderRadius: '8px', overflow: 'hidden' }}
         />
       </Content>
 
-      {/* CREATE USER MODAL (Your existing modal code here) */}
-      <Modal title="Create New LDAP User" open={isModalOpen} onCancel={() => setIsModalOpen(false)} onOk={() => form.submit()}>
-        <Form form={form} layout="vertical" onFinish={handleCreate}>
-          <Form.Item name="uid" label="Username" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="cn" label="Full Name" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="sn" label="Surname" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="mail" label="Email"><Input /></Form.Item>
-          <Form.Item name="title" label="Title"><Input /></Form.Item>
-          <Form.Item name="password" label="Password" rules={[{ required: true }]}><Input.Password /></Form.Item>
+      {/* MODALS REMAIN THE SAME BUT USE handleUserSubmit / handleGroupSubmit */}
+      <Modal title={editingUser ? "Edit User" : "Create User"} open={isModalOpen} onCancel={() => setIsModalOpen(false)} onOk={() => form.submit()}>
+        <Form form={form} layout="vertical" onFinish={handleUserSubmit}>
+            <Form.Item name="uid" label="Username" rules={[{ required: true }]}><Input disabled={!!editingUser} /></Form.Item>
+            <Form.Item name="cn" label="Full Name" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="mail" label="Email"><Input /></Form.Item>
+            {!editingUser && <Form.Item name="password" label="Password" rules={[{ required: true }]}><Input.Password /></Form.Item>}
+        </Form>
+      </Modal>
+
+      <Modal title="New Hybrid Group" open={isGroupModalOpen} onCancel={() => setIsGroupModalOpen(false)} onOk={() => groupForm.submit()}>
+        <Form form={groupForm} layout="vertical" onFinish={handleGroupSubmit}>
+          <Form.Item name="name" label="Group Name" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="description" label="Description"><Input.TextArea /></Form.Item>
         </Form>
       </Modal>
     </Layout>
   );
 }
+
+// Add this at the top with other imports if missing
+const Divider = ({ style }: { style: any }) => <div style={{ borderBottom: '1px solid #f0f0f0', ...style }} />;

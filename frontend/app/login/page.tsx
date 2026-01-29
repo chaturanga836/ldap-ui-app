@@ -12,27 +12,34 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  const onFinish = async (values: any) => {
-    setLoading(true);
-    try {
-      // 1. Call your backend login endpoint
-      const response = await ldapService.login(values.username, values.password);
+const onFinish = async (values: any) => {
+  setLoading(true);
+  try {
+    // 1. ldapService.login already handles the fetch and .json()
+    const data = await ldapService.login(values.username, values.password);
+    
+    // Debug: Check if data actually contains the token
+    console.log("Login Success Data:", data);
 
-      if (!response.ok) throw new Error('Invalid credentials');
-
-      const data = await response.json();
-      
+    if (data && data.access_token) {
       // 2. Store the JWT Token
       localStorage.setItem('token', data.access_token);
       
       message.success('Welcome to LDAP Admin');
-      router.push('/'); // Redirect to your main app
-    } catch (error) {
-      message.error('Authentication failed. Please check your LDAP credentials.');
-    } finally {
-      setLoading(false);
+      
+      // 3. Force a small delay or use window.location if router.push feels stuck
+      router.push('/'); 
+    } else {
+      throw new Error('No token received');
     }
-  };
+  } catch (error: any) {
+    console.error("Login Error:", error);
+    // If the error message comes from the backend (e.g. 401), show it
+    message.error(error.message || 'Authentication failed. Please check your LDAP credentials.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <Layout style={{ minHeight: '100vh', background: '#f0f2f5' }}>
