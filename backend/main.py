@@ -371,6 +371,8 @@ async def create_group(
             raise HTTPException(status_code=400, detail=f"LDAP Error: {error_msg}")
             
         return {"status": "success", "dn": group_dn}
+    
+    
 @app.post("/api/groups/{group_cn}/update")
 async def update_group(
     group_cn: str,
@@ -396,13 +398,6 @@ async def update_group(
             
         return {"status": "success", "message": f"Group {group_cn} updated"}
         
-@app.delete("/api/resource")
-async def remove_resource(dn: str):
-    """Deletion for either user or group based on DN."""
-    with get_conn() as conn:
-        if not conn.delete(dn):
-            raise HTTPException(status_code=400, detail=conn.result['description'])
-        return {"message": f"Entry {dn} deleted"}
 
 @app.post("/api/users/{username}/disable")
 async def disable_user(username: str):
@@ -414,7 +409,18 @@ async def disable_user(username: str):
         return {"message": "User disabled"}
     
 # --- SEARCH APIS ---
-
+@app.post("/api/users/{username}/password")
+async def reset_password(username: str, new_password: str = Body(..., embed=True)):
+    user_dn = f"uid={username},ou=users,{BASE_DN}"
+    
+    with get_conn() as conn:
+        # We use the password_modify extended operation for maximum compatibility
+        if not conn.extend.standard.modify_password(user=user_dn, new_password=new_password):
+            error_desc = conn.result.get('description', 'Unknown Error')
+            raise HTTPException(status_code=400, detail=f"Password reset failed: {error_desc}")
+            
+        return {"status": "success", "message": f"Password for {username} has been reset."}
+    
 @app.get("/api/search/users")
 async def search_users(
     q: str = Query(..., description="Search by name, uid, or email"),

@@ -28,7 +28,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
-const [editingGroup, setEditingGroup] = useState<any>(null);
+  const [editingGroup, setEditingGroup] = useState<any>(null);
   // --- Data State ---
   const [users, setUsers] = useState<LDAPUser[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
@@ -96,17 +96,22 @@ const [editingGroup, setEditingGroup] = useState<any>(null);
   const handleUserSubmit = async (values: any) => {
     try {
       if (editingUser) {
+        // 1. Update basic profile
         await ldapService.updateUser(editingUser.uid, values);
-        message.success("User updated");
+
+        // 2. If the password field was filled out, reset it
+        if (values.password) {
+          await ldapService.resetUserPassword(editingUser.uid, values.password);
+          message.info("Password was also updated.");
+        }
+
+        message.success("User profile updated");
       } else {
-        await ldapService.createUser(values);
+        // Create logic...
+        await ldapService.createUser({ ...values, base_dn: selectedDn });
         message.success("User created");
       }
-      setIsModalOpen(false);
-      setEditingUser(null);
-      form.resetFields();
-      loadUsers(selectedDn);
-      loadTree();
+      // ... cleanup
     } catch (error) {
       message.error("Operation failed");
     }
@@ -274,7 +279,7 @@ const [editingGroup, setEditingGroup] = useState<any>(null);
 
       {/* MODALS REMAIN THE SAME BUT USE handleUserSubmit / handleGroupSubmit */}
       <Modal
-        title={editingUser ? "Edit User" : "Add New User (FreeIPA Style)"}
+        title={editingUser ? `Edit User: ${editingUser.uid}` : "Add New User (FreeIPA Style)"}
         open={isModalOpen}
         onCancel={() => {
           setIsModalOpen(false);
@@ -284,7 +289,12 @@ const [editingGroup, setEditingGroup] = useState<any>(null);
         onOk={() => form.submit()}
         width={600}
       >
-        <Form form={form} layout="vertical" onFinish={handleUserSubmit} initialValues={{ gid: "5000" }}>
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleUserSubmit}
+          initialValues={{ gid: "5000" }}
+        >
           <Flex gap="middle">
             <Form.Item name="first_name" label="First Name" style={{ flex: 1 }}>
               <Input placeholder="e.g. Satoshi" />
@@ -315,36 +325,51 @@ const [editingGroup, setEditingGroup] = useState<any>(null);
             </Form.Item>
           </Flex>
 
-          {!editingUser && (
-            <>
-              <Form.Item
-                name="password"
-                label="New Password"
-                rules={[{ required: true }]}
-              >
-                <Input.Password />
-              </Form.Item>
-              <Form.Item
-                name="verify_password"
-                label="Verify Password"
-                dependencies={['password']}
-                rules={[
-                  { required: true },
-                  ({ getFieldValue }) => ({
-                    validator(_, value) {
-                      if (!value || getFieldValue('password') === value) return Promise.resolve();
-                      return Promise.reject(new Error('Passwords do not match!'));
-                    },
-                  }),
-                ]}
-              >
-                <Input.Password />
-              </Form.Item>
-            </>
-          )}
+          {/* Section for Password: Required for NEW, Optional Reset for EDIT */}
+          <div style={{
+            marginTop: '24px',
+            padding: '16px',
+            background: editingUser ? '#fafafa' : 'transparent',
+            border: editingUser ? '1px dashed #d9d9d9' : 'none',
+            borderRadius: '8px'
+          }}>
+            {editingUser && (
+              <div style={{ marginBottom: '12px' }}>
+                <Text strong>Password Reset</Text>
+                <br />
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  Leave blank if you don't want to change the password.
+                </Text>
+              </div>
+            )}
+
+            <Form.Item
+              name="password"
+              label={editingUser ? "New Password" : "Password"}
+              rules={[{ required: !editingUser, message: 'Password is required' }]}
+            >
+              <Input.Password placeholder={editingUser ? "Enter new password to reset" : ""} />
+            </Form.Item>
+
+            <Form.Item
+              name="verify_password"
+              label="Verify Password"
+              dependencies={['password']}
+              rules={[
+                { required: !editingUser && true },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    if (!value || getFieldValue('password') === value) return Promise.resolve();
+                    return Promise.reject(new Error('Passwords do not match!'));
+                  },
+                }),
+              ]}
+            >
+              <Input.Password placeholder={editingUser ? "Confirm new password" : ""} />
+            </Form.Item>
+          </div>
         </Form>
       </Modal>
-
       {/* Group Modal */}
       <Modal
         title="Add New Group"

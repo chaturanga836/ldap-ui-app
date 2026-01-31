@@ -60,6 +60,17 @@ export const ldapService = {
         return res.json();
     },
 
+    // lib/api.ts
+    resetUserPassword: async (username: string, newPassword: string) => {
+        const res = await fetch(`${BASE_URL}/api/users/${username}/password`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ new_password: newPassword }),
+        });
+        if (!res.ok) throw new Error("Failed to reset password");
+        return res.json();
+    },
+
     deleteResource: async (dn: string) => {
         const res = await fetch(`${BASE_URL}/api/resource?dn=${encodeURIComponent(dn)}`, {
             headers: getAuthHeaders(),
