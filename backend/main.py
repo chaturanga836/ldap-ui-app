@@ -182,40 +182,51 @@ async def get_user(username: str):
 
 @app.post("/api/users")
 async def add_user(attributes: Dict):
-    """Creates a user with an AUTO-GENERATED unique UID and mandatory SN attribute."""
-    # 1. Generate unique ID (7 chars random)
-    unique_id = f"u{uuid.uuid4().hex[:7]}"
+    """
+    Simulates FreeIPA user creation logic.
+    Expects: username (uid), first_name (givenName), last_name (sn), password
+    """
+    # 1. Extract FreeIPA-style fields from payload
+    uid = attributes.get('username')
+    first_name = attributes.get('first_name', '')
+    last_name = attributes.get('last_name', '')
+    password = attributes.get('password')
     
-    # 2. Determine target OU (from frontend or default)
+    if not all([uid, last_name]):
+        raise HTTPException(status_code=400, detail="User Login and Last Name are required.")
+
+    # 2. Construct DN and mandatory LDAP attributes
+    # In LDAP: cn = First + Last Name
+    full_name = f"{first_name} {last_name}".strip()
     target_base = attributes.get('base_dn', f"ou=users,{BASE_DN}")
-    user_dn = f"uid={unique_id},{target_base}"
+    user_dn = f"uid={uid},{target_base}"
     
-    obj_class = ['top', 'person', 'organizationalPerson', 'inetOrgPerson']
-    
-    # --- BACKEND FIX FOR objectClassViolation ---
-    # LDAP requires 'sn'. If not provided, we derive it from 'cn'
-    if 'sn' not in attributes or not attributes['sn']:
-        full_name = attributes.get('cn', 'New User')
-        name_parts = full_name.strip().split()
-        # Use the last name if available, otherwise use the full name as sn
-        attributes['sn'] = name_parts[-1] if len(name_parts) > 1 else full_name
+    # 3. Prepare the LDAP attribute dictionary
+    ldap_attrs = {
+        'uid': uid,
+        'sn': last_name,           # Maps to 'Last Name'
+        'givenName': first_name,   # Maps to 'First Name'
+        'cn': full_name,           # Mandatory for person class
+        'userPassword': password,
+        'mail': attributes.get('mail', f"{uid}@crypto.lake"),
+        'displayName': full_name
+    }
 
-    # Ensure 'uid' is set to our generated unique_id
-    attributes['uid'] = unique_id
-
-    # Remove metadata from attributes before sending to LDAP
-    if 'base_dn' in attributes: del attributes['base_dn']
-    if 'password' in attributes:
-        attributes['userPassword'] = attributes.pop('password')
+    # Handle GID if provided (requires posixAccount objectClass)
+    obj_classes = ['top', 'person', 'organizationalPerson', 'inetOrgPerson']
+    if attributes.get('gid'):
+        ldap_attrs['gidNumber'] = attributes.get('gid')
+        obj_classes.append('posixAccount')
+        # posixAccount also requires homeDirectory and uidNumber
+        ldap_attrs['homeDirectory'] = f"/home/{uid}"
+        ldap_attrs['uidNumber'] = str(uuid.uuid4().int)[:5] # Simple unique ID logic
 
     with get_conn() as conn:
-        # We explicitly pass the attributes dict
-        if not conn.add(user_dn, obj_class, attributes):
-            # If it still fails, we want to know exactly why
-            error_detail = conn.result.get('description', 'Unknown LDAP Error')
-            raise HTTPException(status_code=400, detail=f"LDAP Error: {error_detail}")
-        
-        return {"message": f"User created with ID {unique_id}", "uid": unique_id, "dn": user_dn}
+        if not conn.add(user_dn, obj_classes, ldap_attrs):
+            error_desc = conn.result.get('description', 'Unknown Error')
+            raise HTTPException(status_code=400, detail=f"LDAP Error: {error_desc}")
+            
+        return {"status": "success", "uid": uid, "dn": user_dn}
     
 @app.patch("/api/users/{uid}")
 async def update_user(uid: str, updates: Dict):
