@@ -126,7 +126,7 @@ export default function Dashboard() {
 
   const handleDeleteUser = async (dn: string) => {
     try {
-      await ldapService.deleteResource(dn);
+      await ldapService.deleteUser(dn);
       message.success("User removed");
       loadUsers(selectedDn);
       loadTree();
