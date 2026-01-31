@@ -99,7 +99,7 @@ export default function Dashboard() {
         await ldapService.updateUser(editingUser.uid, values);
         message.success("User updated");
       } else {
-        await ldapService.createUser(values.uid, { ...values, base_dn: selectedDn });
+        await ldapService.createUser(values);
         message.success("User created");
       }
       setIsModalOpen(false);
