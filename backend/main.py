@@ -3,7 +3,8 @@ import os
 import base64
 import ssl
 import time
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import InvalidTokenError
 import uuid
 from fastapi import FastAPI, HTTPException, Query, Body, Depends, status
 from ldap3 import Server, Connection, ALL, BASE, SUBTREE, MODIFY_REPLACE, MODIFY_ADD, Tls
@@ -50,7 +51,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         if username is None:
             raise HTTPException(status_code=401, detail="Invalid token")
         return username
-    except JWTError:
+    except InvalidTokenError:
         raise HTTPException(status_code=401, detail="Could not validate credentials")
     
 # Helper to check LDAP group membership
