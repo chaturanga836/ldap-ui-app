@@ -182,7 +182,7 @@ async def get_user(username: str):
 
 @app.post("/api/users")
 async def add_user(attributes: Dict):
-    """Creates a user with an AUTO-GENERATED unique UID."""
+    """Creates a user with an AUTO-GENERATED unique UID and mandatory SN attribute."""
     # 1. Generate unique ID (7 chars random)
     unique_id = f"u{uuid.uuid4().hex[:7]}"
     
@@ -192,16 +192,31 @@ async def add_user(attributes: Dict):
     
     obj_class = ['top', 'person', 'organizationalPerson', 'inetOrgPerson']
     
+    # --- BACKEND FIX FOR objectClassViolation ---
+    # LDAP requires 'sn'. If not provided, we derive it from 'cn'
+    if 'sn' not in attributes or not attributes['sn']:
+        full_name = attributes.get('cn', 'New User')
+        name_parts = full_name.strip().split()
+        # Use the last name if available, otherwise use the full name as sn
+        attributes['sn'] = name_parts[-1] if len(name_parts) > 1 else full_name
+
+    # Ensure 'uid' is set to our generated unique_id
+    attributes['uid'] = unique_id
+
     # Remove metadata from attributes before sending to LDAP
     if 'base_dn' in attributes: del attributes['base_dn']
     if 'password' in attributes:
         attributes['userPassword'] = attributes.pop('password')
 
     with get_conn() as conn:
+        # We explicitly pass the attributes dict
         if not conn.add(user_dn, obj_class, attributes):
-            raise HTTPException(status_code=400, detail=conn.result['description'])
-        return {"message": f"User created with ID {unique_id}", "uid": unique_id}
-
+            # If it still fails, we want to know exactly why
+            error_detail = conn.result.get('description', 'Unknown LDAP Error')
+            raise HTTPException(status_code=400, detail=f"LDAP Error: {error_detail}")
+        
+        return {"message": f"User created with ID {unique_id}", "uid": unique_id, "dn": user_dn}
+    
 @app.patch("/api/users/{uid}")
 async def update_user(uid: str, updates: Dict):
     """
