@@ -45,21 +45,25 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 # Helper to check LDAP group membership
 def validate_admin(current_user: str = Depends(get_current_user)):
-    """
-    Checks if the logged-in user is a member of the 'admins' group in LDAP.
-    """
     with get_conn() as conn:
-        # Search for the group 'admins' and check if this user is a member
-        # Note: We check both 'member' (DN) and 'memberUid' (username) for maximum compatibility
-        search_filter = f"(&(cn=admins)(|(memberUid={current_user})(member=uid={current_user},ou=users,{BASE_DN})))"
+        # 1. Define the group search filter
+        # We check for the user in the 'admins' group
+        # Using both member (DN) and memberUid (UID string) for POSIX/Non-POSIX compatibility
+        user_dn = f"uid={current_user},ou=users,{BASE_DN}"
+        search_filter = f"(&(cn=admins)(|(member={user_dn})(memberUid={current_user})))"
         
+        # 2. Search only in the groups OU
         conn.search(f"ou=groups,{BASE_DN}", search_filter)
         
+        # 3. If no entries found, they are NOT an admin
         if not conn.entries:
+            print(f"Access Denied: {current_user} is not in 'admins' group")
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: You do not have administrative privileges."
+                status_code=403, 
+                detail=f"Access denied: User '{current_user}' is not an administrator."
             )
+            
+    # 4. If we reach here, they are an admin
     return current_user
 
 def check_config():
@@ -248,8 +252,11 @@ async def add_user(attributes: Dict, admin: str = Depends(validate_admin)):
         
         if not conn.entries:
             print(f"Creating missing OU: {target_ou}")
-            conn.add(target_ou, ['top', 'organizationalUnit'], {'ou': 'users'})
+            success = conn.add(target_ou, ['top', 'organizationalUnit'], {'ou': 'users'})
             
+            if not success:
+                raise HTTPException(status_code=400, detail=f"LDAP Write Failed: {conn.result.get('description')}")
+        
         if not conn.add(user_dn, obj_classes, ldap_attrs):
             error_desc = conn.result.get('description', 'Unknown Error')
             raise HTTPException(status_code=400, detail=f"LDAP Error: {error_desc}")
