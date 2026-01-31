@@ -108,6 +108,16 @@ export const ldapService = {
         return res.json();
     },
 
+    updateGroup: async (cn: string, data: { description?: string; gid?: number }) => {
+        const res = await fetch(`${BASE_URL}/api/groups/${cn}/update`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify(data),
+        });
+        if (!res.ok) throw new Error("Failed to update group");
+        return res.json();
+    },
+
     deleteGroup: async (cn: string) => {
         const res = await fetch(`${BASE_URL}/api/groups/${encodeURIComponent(cn)}`, {
             method: "DELETE",

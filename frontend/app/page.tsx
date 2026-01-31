@@ -28,7 +28,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
-
+const [editingGroup, setEditingGroup] = useState<any>(null);
   // --- Data State ---
   const [users, setUsers] = useState<LDAPUser[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
@@ -124,17 +124,54 @@ export default function Dashboard() {
   };
 
   const handleGroupSubmit = async (values: any) => {
+    setLoading(true);
     try {
-      await ldapService.createGroup(values);
-      message.success(`Group ${values.name} created`);
+      if (editingGroup) {
+        // Logic for Updating
+        await ldapService.updateGroup(editingGroup.cn, {
+          description: values.description,
+          gid: values.gid
+        });
+        message.success(`Group "${editingGroup.cn}" updated successfully`);
+      } else {
+        // Logic for Creating
+        await ldapService.createGroup(values);
+        message.success(`Group "${values.name}" created`);
+      }
+
+      // Cleanup
       setIsGroupModalOpen(false);
+      setEditingGroupConfig(null);
+      setEditingGroup(false);
       groupForm.resetFields();
       loadGroups();
-    } catch (err) {
-      message.error("Failed to create group");
+    } catch (err: any) {
+      message.error(err.message || "Failed to process group request");
+    } finally {
+      setLoading(false);
     }
   };
 
+  const setEditingGroupConfig = (group: any) => {
+    groupForm.setFieldsValue({
+      name: group.cn,
+      description: group.description,
+      group_type: group.gidNumber ? 'posix' : 'non-posix',
+      gid: group.gidNumber
+    });
+    setEditingGroup(true);
+    setIsGroupModalOpen(true);
+  };
+
+  const handleDeleteGroup = async (cn: string) => {
+    try {
+      await ldapService.deleteGroup(cn);
+      message.success("Group deleted");
+      loadGroups();
+    } catch (err) {
+      message.error("Failed to delete group");
+    }
+  };
   // --- Table Definitions ---
   const userColumns = [
     { title: 'Username', dataIndex: 'uid', key: 'uid' },
@@ -161,10 +198,19 @@ export default function Dashboard() {
     {
       title: 'Action',
       render: (_: any, record: any) => (
-        <Button type="link" danger onClick={async () => {
-          await ldapService.deleteGroup(record.cn);
-          loadGroups();
-        }}>Delete</Button>
+        <Space>
+          <Button type="link" onClick={() => {
+            setEditingGroupConfig(record); // Add a new state: const [editingGroup, setEditingGroup] = useState(null);
+            groupForm.setFieldsValue({
+              name: record.cn,
+              description: record.description,
+              group_type: record.gidNumber ? 'posix' : 'non-posix',
+              gid: record.gidNumber
+            });
+            setIsGroupModalOpen(true);
+          }}>Edit</Button>
+          <Button type="link" danger onClick={() => handleDeleteGroup(record.cn)}>Delete</Button>
+        </Space>
       )
     },
   ];

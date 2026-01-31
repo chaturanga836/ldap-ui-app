@@ -371,6 +371,31 @@ async def create_group(
             raise HTTPException(status_code=400, detail=f"LDAP Error: {error_msg}")
             
         return {"status": "success", "dn": group_dn}
+@app.post("/api/groups/{group_cn}/update")
+async def update_group(
+    group_cn: str,
+    description: str = Body(None, embed=True),
+    gid: int = Body(None, embed=True)
+):
+    group_dn = f"cn={group_cn},ou=groups,{BASE_DN}"
+    
+    # Prepare modifications
+    changes = {}
+    if description:
+        changes['description'] = [(MODIFY_REPLACE, [description])]
+    if gid:
+        changes['gidNumber'] = [(MODIFY_REPLACE, [str(gid)])]
+
+    if not changes:
+        return {"status": "no_changes"}
+
+    with get_conn() as conn:
+        if not conn.modify(group_dn, changes):
+            error_msg = conn.result.get('description', 'Unknown Error')
+            raise HTTPException(status_code=400, detail=f"Update failed: {error_msg}")
+            
+        return {"status": "success", "message": f"Group {group_cn} updated"}
+        
 @app.delete("/api/resource")
 async def remove_resource(dn: str):
     """Deletion for either user or group based on DN."""
