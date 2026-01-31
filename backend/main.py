@@ -3,7 +3,7 @@ import os
 import base64
 import ssl
 import time
-import jwt
+from jose import JWTError, jwt
 import uuid
 from fastapi import FastAPI, HTTPException, Query, Body, Depends, status
 from ldap3 import Server, Connection, ALL, BASE, SUBTREE, MODIFY_REPLACE, MODIFY_ADD, Tls
@@ -43,6 +43,16 @@ IS_CONFIGURED = all([BASE_DN, ADMIN_DN, ADMIN_PW])
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return username
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Could not validate credentials")
+    
 # Helper to check LDAP group membership
 def validate_admin(current_user: str = Depends(get_current_user)):
     with get_conn() as conn:
