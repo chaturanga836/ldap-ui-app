@@ -111,6 +111,13 @@ export default function Dashboard() {
         await ldapService.createUser({ ...values, base_dn: selectedDn });
         message.success("User created");
       }
+
+      // --- KEY ADDITIONS TO CLOSE MODAL ---
+    setIsModalOpen(false);      // Close the modal
+    setEditingUser(null);       // Clear editing state
+    form.resetFields();         // Reset form values
+    loadUsers();               // Refresh your table list
+    // ------------------------------------
       // ... cleanup
     } catch (error) {
       message.error("Operation failed");
