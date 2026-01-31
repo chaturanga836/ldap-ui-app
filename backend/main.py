@@ -6,7 +6,7 @@ import time
 import jwt
 import uuid
 from fastapi import FastAPI, HTTPException, Query, Body, Depends
-from ldap3 import Server, Connection, ALL, BASE, SUBTREE, MODIFY_REPLACE, Tls
+from ldap3 import Server, Connection, ALL, BASE, SUBTREE, MODIFY_REPLACE, MODIFY_ADD, Tls
 from typing import Dict
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
@@ -778,3 +778,25 @@ def get_ldap_tree():
     except Exception as e:
         # This will now catch the error and show it in your frontend if it still persists
         return {"error": str(e)}
+
+@app.post("/api/groups/add-member")
+async def add_user_to_group(
+    group_dn: str = Body(..., embed=True),
+    user_dn: str = Body(..., embed=True),
+    username: str = Body(..., embed=True) # The short 'uid'
+):
+    try:
+        with get_conn() as conn:
+            # We perform two modifications in one go
+            changes = {
+                'member': [(MODIFY_ADD, [user_dn])],
+                'memberUid': [(MODIFY_ADD, [username])]
+            }
+            
+            if not conn.modify(group_dn, changes):
+                # If it fails, it might be because the user is already a member
+                return {"status": "error", "detail": conn.result.get('description')}
+                
+            return {"status": "success", "message": f"User added to {group_dn}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

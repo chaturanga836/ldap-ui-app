@@ -19,6 +19,9 @@ services:
       - ADMIN_PW=${ADMIN_PW}
       - JWT_SECRET=${JWT_SECRET}
     restart: always
+    volumes:
+      # Optional: Map certs if the backend needs to validate the CA
+      - ./certs:/etc/ldap/certs:ro
     # This ensures your logs are visible in the console
     tty: true
 
