@@ -221,7 +221,16 @@ async def add_user(attributes: Dict):
         ldap_attrs['homeDirectory'] = f"/home/{uid}"
         ldap_attrs['uidNumber'] = str(uuid.uuid4().int)[:5] # Simple unique ID logic
 
+    target_ou = f"ou=users,{BASE_DN}"
+    user_dn = f"uid={uid},{target_ou}"
+    
     with get_conn() as conn:
+        conn.search(target_ou, '(objectClass=*)', search_scope=BASE)
+        
+        if not conn.entries:
+            print(f"Creating missing OU: {target_ou}")
+            conn.add(target_ou, ['top', 'organizationalUnit'], {'ou': 'users'})
+            
         if not conn.add(user_dn, obj_classes, ldap_attrs):
             error_desc = conn.result.get('description', 'Unknown Error')
             raise HTTPException(status_code=400, detail=f"LDAP Error: {error_desc}")
