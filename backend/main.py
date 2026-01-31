@@ -5,7 +5,7 @@ import ssl
 import time
 import jwt
 import uuid
-from fastapi import FastAPI, HTTPException, Query, Body, Depends
+from fastapi import FastAPI, HTTPException, Query, Body, Depends, status
 from ldap3 import Server, Connection, ALL, BASE, SUBTREE, MODIFY_REPLACE, MODIFY_ADD, Tls
 from typing import Dict
 from fastapi.security import OAuth2PasswordBearer
@@ -42,6 +42,25 @@ IS_CONFIGURED = all([BASE_DN, ADMIN_DN, ADMIN_PW])
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+# Helper to check LDAP group membership
+def validate_admin(current_user: str = Depends(get_current_user)):
+    """
+    Checks if the logged-in user is a member of the 'admins' group in LDAP.
+    """
+    with get_conn() as conn:
+        # Search for the group 'admins' and check if this user is a member
+        # Note: We check both 'member' (DN) and 'memberUid' (username) for maximum compatibility
+        search_filter = f"(&(cn=admins)(|(memberUid={current_user})(member=uid={current_user},ou=users,{BASE_DN})))"
+        
+        conn.search(f"ou=groups,{BASE_DN}", search_filter)
+        
+        if not conn.entries:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You do not have administrative privileges."
+            )
+    return current_user
 
 def check_config():
     """Middleware-style check to prevent LDAP calls if config is missing."""
@@ -181,7 +200,7 @@ async def get_user(username: str):
         return conn.entries[0].entry_attributes_as_dict
 
 @app.post("/api/users")
-async def add_user(attributes: Dict):
+async def add_user(attributes: Dict, admin: str = Depends(validate_admin)):
     """
     Simulates FreeIPA user creation logic.
     Expects: username (uid), first_name (givenName), last_name (sn), password
@@ -238,7 +257,7 @@ async def add_user(attributes: Dict):
         return {"status": "success", "uid": uid, "dn": user_dn}
     
 @app.patch("/api/users/{uid}")
-async def update_user(uid: str, updates: Dict):
+async def update_user(uid: str, updates: Dict, admin: str = Depends(validate_admin)):
     """
     Search for the user by UID to get their full DN, then apply changes.
     """
@@ -261,6 +280,26 @@ async def update_user(uid: str, updates: Dict):
             raise HTTPException(status_code=400, detail=conn.result['description'])
         return {"message": "User updated successfully"}
 
+@app.delete("/api/users/{uid}")
+async def delete_user(uid: str, admin: str = Depends(validate_admin)):
+    """
+    Deletes a user from LDAP.
+    """
+    # 1. Find the user first to get their full DN
+    with get_conn() as conn:
+        conn.search(BASE_DN, f'(uid={uid})', search_scope=SUBTREE)
+        
+        if not conn.entries:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        user_dn = conn.entries[0].entry_dn
+
+        # 2. Perform the delete
+        if not conn.delete(user_dn):
+            error_msg = conn.result.get('description', 'Unknown Error')
+            raise HTTPException(status_code=400, detail=f"Failed to delete: {error_msg}")
+            
+        return {"status": "success", "message": f"User {uid} deleted successfully"}
 # --- GROUP APIS ---
 
 @app.get("/api/groups")
