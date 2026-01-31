@@ -70,13 +70,19 @@ export const ldapService = {
         if (!res.ok) throw new Error("Failed to reset password");
         return res.json();
     },
-
-    deleteResource: async (dn: string) => {
-        const res = await fetch(`${BASE_URL}/api/resource?dn=${encodeURIComponent(dn)}`, {
-            headers: getAuthHeaders(),
+// --- DELETE USER METHOD ---
+    deleteUser: async (uid: string) => {
+        const url = `${BASE_URL}/api/users/${encodeURIComponent(uid)}`;
+        const res = await fetch(url, {
             method: "DELETE",
+            headers: getAuthHeaders(),
         });
-        if (!res.ok) throw new Error("Failed to delete resource");
+        
+        if (!res.ok) {
+            const errorData = await res.json();
+            throw new Error(errorData.detail || `Failed to delete user ${uid}`);
+        }
+        
         return res.json();
     },
 
