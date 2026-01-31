@@ -48,14 +48,14 @@ export const ldapService = {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({
-        username: userData.username,
-        first_name: userData.first_name,
-        last_name: userData.last_name,
-        password: userData.password,
-        mail: userData.mail,
-        base_dn: userData.base_dn, // Passed from the selected tree node
-        gid: userData.gid // Optional GID
-      }),
+                username: userData.username,
+                first_name: userData.first_name,
+                last_name: userData.last_name,
+                password: userData.password,
+                mail: userData.mail,
+                base_dn: userData.base_dn, // Passed from the selected tree node
+                gid: userData.gid, // Optional GID
+            }),
         });
         return res.json();
     },
@@ -89,13 +89,22 @@ export const ldapService = {
         return response.json();
     },
 
-    createGroup: async (name: string, description: string) => {
+    createGroup: async (groupData: { name: string; description: string; group_type: "posix" | "non-posix" | "external"; gid?: string }) => {
         const res = await fetch(`${BASE_URL}/api/groups`, {
             method: "POST",
             headers: getAuthHeaders(),
-            body: JSON.stringify({ name, description }),
+            body: JSON.stringify({
+                name: groupData.name,
+                description: groupData.description,
+                group_type: groupData.group_type,
+                gid: groupData.gid ? parseInt(groupData.gid) : null,
+            }),
         });
-        if (!res.ok) throw new Error("Failed to create group");
+
+        if (!res.ok) {
+            const error = await res.json();
+            throw new Error(error.detail || "Failed to create group");
+        }
         return res.json();
     },
 

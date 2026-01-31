@@ -1,6 +1,6 @@
 "use client";
 import React, { useEffect, useState, useCallback } from 'react';
-import { Table, Tag, message, Button, Modal, Form, Input, Space, Popconfirm, Tree, Layout, Flex, Menu } from 'antd';
+import { Table, Tag, message, Button, Modal, Form, Input, Space, Popconfirm, Tree, Layout, Flex, Menu, Radio } from 'antd';
 import { ldapService } from '@/lib/api';
 import { useIdleLogout } from '@/hooks/useIdleLogout';
 import { useRouter } from 'next/navigation';
@@ -125,7 +125,7 @@ export default function Dashboard() {
 
   const handleGroupSubmit = async (values: any) => {
     try {
-      await ldapService.createGroup(values.name, values.description);
+      await ldapService.createGroup(values);
       message.success(`Group ${values.name} created`);
       setIsGroupModalOpen(false);
       groupForm.resetFields();
@@ -296,6 +296,50 @@ export default function Dashboard() {
               </Form.Item>
             </>
           )}
+        </Form>
+      </Modal>
+
+      {/* Group Modal */}
+      <Modal
+        title="Add New Group"
+        open={isGroupModalOpen}
+        onCancel={() => setIsGroupModalOpen(false)}
+        onOk={() => groupForm.submit()}
+      >
+        <Form
+          form={groupForm}
+          layout="vertical"
+          onFinish={handleGroupSubmit}
+          initialValues={{ group_type: 'posix', gid: 5000 }}
+        >
+          <Form.Item name="name" label="Group Name" rules={[{ required: true }]}>
+            <Input placeholder="e.g. trino_admins" />
+          </Form.Item>
+
+          <Form.Item name="description" label="Description">
+            <Input.TextArea placeholder="Used for Apache Ranger policies" />
+          </Form.Item>
+
+          <Form.Item name="group_type" label="Group Type">
+            <Radio.Group>
+              <Radio value="non-posix">Non-Posix (Web Only)</Radio>
+              <Radio value="posix">Posix (Linux/Data Platforms)</Radio>
+            </Radio.Group>
+          </Form.Item>
+
+          {/* Only show GID if Posix is selected */}
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.group_type !== currentValues.group_type}
+          >
+            {({ getFieldValue }) =>
+              getFieldValue('group_type') === 'posix' ? (
+                <Form.Item name="gid" label="GID" rules={[{ required: true }]}>
+                  <Input type="number" />
+                </Form.Item>
+              ) : null
+            }
+          </Form.Item>
         </Form>
       </Modal>
     </Layout>
