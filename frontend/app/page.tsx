@@ -140,8 +140,8 @@ export default function Dashboard() {
     { title: 'Username', dataIndex: 'uid', key: 'uid' },
     { title: 'Full Name', dataIndex: 'cn', key: 'cn' },
     { title: 'Email', dataIndex: 'mail', key: 'mail' },
-    { 
-      title: 'Action', 
+    {
+      title: 'Action',
       render: (_: any, record: LDAPUser) => (
         <Space>
           <Button type="link" onClick={() => { setEditingUser(record); form.setFieldsValue(record); setIsModalOpen(true); }}>Edit</Button>
@@ -149,7 +149,7 @@ export default function Dashboard() {
             <Button type="link" danger>Delete</Button>
           </Popconfirm>
         </Space>
-      ) 
+      )
     },
   ];
 
@@ -158,14 +158,14 @@ export default function Dashboard() {
     { title: 'Type', dataIndex: 'type', key: 'type', render: (t: string) => <Tag color="purple">{t}</Tag> },
     { title: 'GID', dataIndex: 'gidNumber', key: 'gidNumber' },
     { title: 'Members', dataIndex: 'memberCount', key: 'memberCount' },
-    { 
-        title: 'Action', 
-        render: (_: any, record: any) => (
-          <Button type="link" danger onClick={async () => {
-            await ldapService.deleteGroup(record.cn);
-            loadGroups();
-          }}>Delete</Button>
-        ) 
+    {
+      title: 'Action',
+      render: (_: any, record: any) => (
+        <Button type="link" danger onClick={async () => {
+          await ldapService.deleteGroup(record.cn);
+          loadGroups();
+        }}>Delete</Button>
+      )
     },
   ];
 
@@ -178,7 +178,7 @@ export default function Dashboard() {
           <Title level={4} style={{ margin: 0 }}>Crypto Lake</Title>
           <Button type="text" icon={<LogoutOutlined />} onClick={handleLogout} danger />
         </div>
-        
+
         <Menu
           mode="inline"
           selectedKeys={[viewMode]}
@@ -193,9 +193,9 @@ export default function Dashboard() {
           <div style={{ padding: '0 24px 24px' }}>
             <Divider style={{ margin: '12px 0' }} />
             <Text type="secondary" style={{ fontSize: '12px' }}>ORGANIZATION TREE</Text>
-            <Tree 
-              treeData={treeData} 
-              onSelect={(keys) => { setSelectedDn(keys[0] as string); loadUsers(keys[0] as string); }} 
+            <Tree
+              treeData={treeData}
+              onSelect={(keys) => { setSelectedDn(keys[0] as string); loadUsers(keys[0] as string); }}
               style={{ marginTop: '12px' }}
             />
           </div>
@@ -208,9 +208,9 @@ export default function Dashboard() {
             <Title level={2}>{viewMode === 'users' ? 'User Management' : 'Group Management'}</Title>
             <Text type="secondary">{selectedDn || 'Global Directory'}</Text>
           </div>
-          <Button 
-            type="primary" 
-            icon={<PlusOutlined />} 
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
             onClick={() => viewMode === 'users' ? setIsModalOpen(true) : setIsGroupModalOpen(true)}
           >
             New {viewMode === 'users' ? 'User' : 'Group'}
@@ -227,19 +227,75 @@ export default function Dashboard() {
       </Content>
 
       {/* MODALS REMAIN THE SAME BUT USE handleUserSubmit / handleGroupSubmit */}
-      <Modal title={editingUser ? "Edit User" : "Create User"} open={isModalOpen} onCancel={() => setIsModalOpen(false)} onOk={() => form.submit()}>
-        <Form form={form} layout="vertical" onFinish={handleUserSubmit}>
-            <Form.Item name="uid" label="Username" rules={[{ required: true }]}><Input disabled={!!editingUser} /></Form.Item>
-            <Form.Item name="cn" label="Full Name" rules={[{ required: true }]}><Input /></Form.Item>
-            <Form.Item name="mail" label="Email"><Input /></Form.Item>
-            {!editingUser && <Form.Item name="password" label="Password" rules={[{ required: true }]}><Input.Password /></Form.Item>}
-        </Form>
-      </Modal>
+      <Modal
+        title={editingUser ? "Edit User" : "Add New User (FreeIPA Style)"}
+        open={isModalOpen}
+        onCancel={() => {
+          setIsModalOpen(false);
+          setEditingUser(null);
+          form.resetFields();
+        }}
+        onOk={() => form.submit()}
+        width={600}
+      >
+        <Form form={form} layout="vertical" onFinish={handleUserSubmit} initialValues={{ gid: "5000" }}>
+          <Flex gap="middle">
+            <Form.Item name="first_name" label="First Name" style={{ flex: 1 }}>
+              <Input placeholder="e.g. Satoshi" />
+            </Form.Item>
+            <Form.Item name="last_name" label="Last Name" rules={[{ required: true }]} style={{ flex: 1 }}>
+              <Input placeholder="e.g. Nakamoto" />
+            </Form.Item>
+          </Flex>
 
-      <Modal title="New Hybrid Group" open={isGroupModalOpen} onCancel={() => setIsGroupModalOpen(false)} onOk={() => groupForm.submit()}>
-        <Form form={groupForm} layout="vertical" onFinish={handleGroupSubmit}>
-          <Form.Item name="name" label="Group Name" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="description" label="Description"><Input.TextArea /></Form.Item>
+          <Form.Item
+            name="username"
+            label="User Login"
+            rules={[{ required: true, message: 'Username is required' }]}
+          >
+            <Input prefix={<UserOutlined />} disabled={!!editingUser} placeholder="satoshi" />
+          </Form.Item>
+
+          <Form.Item name="mail" label="Email">
+            <Input placeholder="satoshi@crypto.lake" />
+          </Form.Item>
+
+          <Flex gap="middle">
+            <Form.Item name="gid" label="GID" style={{ flex: 1 }}>
+              <Input placeholder="5000" />
+            </Form.Item>
+            <Form.Item label="Private Group" style={{ flex: 1 }}>
+              <Tag color="blue">No Private Group (Default)</Tag>
+            </Form.Item>
+          </Flex>
+
+          {!editingUser && (
+            <>
+              <Form.Item
+                name="password"
+                label="New Password"
+                rules={[{ required: true }]}
+              >
+                <Input.Password />
+              </Form.Item>
+              <Form.Item
+                name="verify_password"
+                label="Verify Password"
+                dependencies={['password']}
+                rules={[
+                  { required: true },
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      if (!value || getFieldValue('password') === value) return Promise.resolve();
+                      return Promise.reject(new Error('Passwords do not match!'));
+                    },
+                  }),
+                ]}
+              >
+                <Input.Password />
+              </Form.Item>
+            </>
+          )}
         </Form>
       </Modal>
     </Layout>

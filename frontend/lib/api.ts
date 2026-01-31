@@ -43,11 +43,19 @@ export const ldapService = {
         return res.json();
     },
 
-    createUser: async (username: string, userData: any) => {
-        const res = await fetch(`${BASE_URL}/api/users?username=${username}`, {
+    createUser: async (userData: any) => {
+        const res = await fetch(`${BASE_URL}/api/users`, {
             method: "POST",
             headers: getAuthHeaders(),
-            body: JSON.stringify(userData),
+            body: JSON.stringify({
+        username: userData.username,
+        first_name: userData.first_name,
+        last_name: userData.last_name,
+        password: userData.password,
+        mail: userData.mail,
+        base_dn: userData.base_dn, // Passed from the selected tree node
+        gid: userData.gid // Optional GID
+      }),
         });
         return res.json();
     },
