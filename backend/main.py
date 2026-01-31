@@ -331,29 +331,55 @@ async def list_groups(page_size: int = Query(10, ge=1, le=1000), cookie: str = N
 
 # 2. Update the search line in create_group
 @app.post("/api/groups")
-async def create_group(name: str = Body(..., embed=True), description: str = Body(None, embed=True)):
+async def create_group(
+    name: str = Body(..., embed=True), 
+    description: str = Body(None, embed=True),
+    group_type: str = Body("posix", embed=True),  # 'posix', 'non-posix', or 'external'
+    gid: int = Body(None, embed=True)
+):
     parent_dn = f"ou=groups,{BASE_DN}"
     group_dn = f"cn={name},{parent_dn}"
     
+    # 1. Start with base classes required by most apps (Ranger/Airflow)
+    # groupOfNames requires at least one 'member'
+    obj_classes = ['top', 'groupOfNames']
+    attributes = {
+        'cn': name,
+        'description': description or "Crypto Lake Group",
+        'member': [ADMIN_DN] 
+    }
+
+    # 2. Apply FreeIPA-style logic based on group_type
+    if group_type == "posix":
+        # Required for Trino/Linux visibility
+        obj_classes.append('posixGroup')
+        if not gid:
+            raise HTTPException(status_code=400, detail="GID is required for POSIX groups")
+        attributes['gidNumber'] = str(gid)
+
+    elif group_type == "external":
+        # In a real FreeIPA setup, this uses ipaExternalGroup. 
+        # For standard OpenLDAP, we usually use a specific attribute or just keep it non-posix.
+        attributes['description'] = f"[EXTERNAL] {attributes['description']}"
+
+    # 3. LDAP Operations
     with get_conn() as conn:
-        # FIX: Use the constant BASE, not the string 'BASE'
-        conn.search(parent_dn, '(objectClass=*)', search_scope=BASE) 
-        
+        # Check if ou=groups exists
+        conn.search(parent_dn, '(objectClass=*)', search_scope=BASE)
         if not conn.entries:
-            # Create the ou=groups if it doesn't exist
             conn.add(parent_dn, ['top', 'organizationalUnit'], {'ou': 'groups'})
 
-        attributes = {
-            'cn': name,
-            'description': description or "Crypto Lake Group",
-            'member': [ADMIN_DN] 
-        }
-        
-        if not conn.add(group_dn, ['top', 'groupOfNames'], attributes):
-            return {"status": "error", "detail": conn.result.get('description')}
+        # Create the group
+        if not conn.add(group_dn, obj_classes, attributes):
+            error_msg = conn.result.get('description', 'Unknown Error')
+            raise HTTPException(status_code=400, detail=f"LDAP Error: {error_msg}")
             
-        return {"status": "success", "dn": group_dn}
-     
+        return {
+            "status": "success", 
+            "dn": group_dn, 
+            "type": group_type,
+            "gid": attributes.get('gidNumber')
+        }    
 
 @app.delete("/api/resource")
 async def remove_resource(dn: str):
