@@ -912,31 +912,41 @@ def get_ldap_tree():
         return {"error": str(e)}
 
 @app.post("/api/groups/add-member")
-async def add_user_to_group(
-    payload: dict = Body(...), 
-    admin: str = Depends(validate_admin)
-):
+async def add_user_to_group(payload: dict, admin: str = Depends(validate_admin)):
     group_dn = payload.get("group_dn")
     user_dn = payload.get("user_dn")
     username = payload.get("username")
 
     with get_conn() as conn:
-        # 1. Update 'member' (for groupOfNames)
-        # 2. Update 'memberUid' (for posixGroup compatibility)
-        change = {
-            'member': [(MODIFY_ADD, [user_dn])],
-            'memberUid': [(MODIFY_ADD, [username])]
-        }
+        # 1. First, let's see what this group actually is
+        conn.search(group_dn, '(objectClass=*)', attributes=['objectClass'])
+        if not conn.entries:
+            raise HTTPException(status_code=404, detail="Group not found")
         
-        if not conn.modify(group_dn, change):
-            error = conn.result.get('description', 'Unknown Error')
-            # If user is already in group, LDAP returns 'entryAlreadyExists'
-            if error == 'entryAlreadyExists':
-                 raise HTTPException(status_code=400, detail="User is already a member")
-            raise HTTPException(status_code=400, detail=f"LDAP Error: {error}")
+        group_classes = conn.entries[0].objectClass.value
+        changes = {}
 
-        return {"status": "success", "message": f"Added {username} to {group_dn}"}
+        # 2. Add 'member' if it's a standard group
+        if 'groupOfNames' in group_classes or 'groupOfUniqueNames' in group_classes:
+            changes['member'] = [(MODIFY_ADD, [user_dn])]
+        
+        # 3. Add 'memberUid' if it's a POSIX group
+        if 'posixGroup' in group_classes:
+            changes['memberUid'] = [(MODIFY_ADD, [username])]
 
+        if not changes:
+             # Fallback: try adding to 'member' if we can't detect type
+             changes['member'] = [(MODIFY_ADD, [user_dn])]
+
+        # 4. Perform the modification
+        if not conn.modify(group_dn, changes):
+            error_desc = conn.result.get('description', 'Unknown error')
+            # If we get objectClassViolation here, it's because we tried to add 
+            # an attribute the group doesn't support.
+            raise HTTPException(status_code=400, detail=f"LDAP Error: {error_desc}")
+
+        return {"message": f"Successfully added {username} to group"}
+    
 @app.post("/api/groups/remove-member")
 async def remove_user_from_group(
     payload: dict = Body(...), 
