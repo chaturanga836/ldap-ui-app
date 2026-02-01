@@ -136,7 +136,7 @@ export const ldapService = {
     },
 
     deleteGroup: async (cn: string) => {
-        const res = await fetch(`${BASE_URL}/api/groups/${encodeURIComponent(cn)}`, {
+        const res = await fetch(`${BASE_URL}/api/groups/${cn}`, {
             method: "DELETE",
             headers: getAuthHeaders(),
         });
