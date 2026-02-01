@@ -70,19 +70,19 @@ export const ldapService = {
         if (!res.ok) throw new Error("Failed to reset password");
         return res.json();
     },
-// --- DELETE USER METHOD ---
+    // --- DELETE USER METHOD ---
     deleteUser: async (uid: string) => {
         const url = `${BASE_URL}/api/users/${uid}`;
         const res = await fetch(url, {
             method: "DELETE",
             headers: getAuthHeaders(),
         });
-        
+
         if (!res.ok) {
             const errorData = await res.json();
             throw new Error(errorData.detail || `Failed to delete user ${uid}`);
         }
-        
+
         return res.json();
     },
 
@@ -144,7 +144,7 @@ export const ldapService = {
         return res.json();
     },
 
-// --- SEARCH METHOD ---
+    // --- SEARCH METHOD ---
     searchLDAP: async (query: string) => {
         // Change from /api/search to /api/search/users
         const res = await fetch(`${BASE_URL}/api/search/users?q=${encodeURIComponent(query)}`, {
@@ -174,5 +174,15 @@ export const ldapService = {
         return response.json();
     },
 
-    
+    getCurrentGroupMembers: async (groupCn: string) => {
+        const response = await fetch(`${BASE_URL}/api/groups/${groupCn}/members`, {
+            headers: getAuthHeaders(),
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || "Failed to get current group members");
+        }
+        return response.json();
+    },
 };

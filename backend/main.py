@@ -552,6 +552,7 @@ async def search_groups(
             "results": results,
             "next_cookie": new_cookie
         }
+        
 @app.delete("/api/groups/{cn}")
 async def delete_group(cn: str):
     """Deletes a group entry from the ou=groups container."""
@@ -988,3 +989,19 @@ async def remove_user_from_group(
             raise HTTPException(status_code=400, detail=f"LDAP Error: {error}")
 
         return {"status": "success", "message": f"Removed {username} from {group_dn}"}
+    
+@app.get("/api/groups/{group_cn}/members")
+async def get_group_members(group_cn: str, admin: str = Depends(validate_admin)):
+    with get_conn() as conn:
+        # Search for the specific group to get its member list
+        search_filter = f"(&(objectClass=*)(cn={group_cn}))"
+        conn.search(BASE_DN, search_filter, attributes=['member', 'memberUid'])
+        
+        if not conn.entries:
+            return {"members": []}
+            
+        entry = conn.entries[0]
+        # Merge member (DNs) and memberUid (Usernames)
+        m1 = entry.member.values if 'member' in entry else []
+        m2 = entry.memberUid.values if 'memberUid' in entry else []
+        return {"members": m1 + m2}
