@@ -134,7 +134,12 @@ export const MemberModal: React.FC<MemberModalProps> = ({ visible, group, onCanc
                         >
                             <List.Item.Meta
                                 avatar={<UserOutlined style={{ color: '#1890ff' }} />}
-                                description={<Text ellipsis={{ tooltip: item }}>{item}</Text>}
+                                title={<Text strong>{parseDn(item)}</Text>} // This shows "admin" instead of the full DN
+                                description={
+                                    <Text type="secondary" style={{ fontSize: '11px' }} ellipsis={{ tooltip: item }}>
+                                        {item} {/* Keeps the full DN visible in small text or tooltip if needed */}
+                                    </Text>
+                                }
                             />
                         </List.Item>
                     )}
