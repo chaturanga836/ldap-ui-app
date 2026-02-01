@@ -479,38 +479,31 @@ async def reset_password(username: str, new_password: str = Body(..., embed=True
         return {"status": "success", "message": f"Password for {username} has been reset."}
     
 @app.get("/api/search/users")
-async def search_users(
-    q: str = Query(..., description="Search by name, uid, or email"),
-    page_size: int = Query(10, le=1000),
-    cookie: str = None
-):
-    """Search users across multiple fields using an 'OR' filter."""
-    decoded_cookie = base64.b64decode(cookie) if cookie else None
-    
-    # This filter looks for the string in uid OR common name OR email
-    search_filter = f"(|(uid=*{q}*)(cn=*{q}*)(mail=*{q}*)(sn=*{q}*)(givenName=*{q}*))"
+async def search_users(q: str = Query(...)):
+    # 1. Broaden the filter: Remove objectClass requirement for now
+    # 2. Add sn (surname) and displayName to the OR logic
+    search_filter = f"(|(uid=*{q}*)(cn=*{q}*)(mail=*{q}*)(sn=*{q}*)(displayName=*{q}*))"
     
     with get_conn() as conn:
+        # Ensure search_base is the ROOT of your directory
         conn.search(
-            search_base=BASE_DN,
-            search_filter=f"(&(objectClass=person){search_filter})",
+            search_base="dc=crypto,dc=lake", 
+            search_filter=search_filter,
             search_scope=SUBTREE,
-            attributes=['uid', 'cn', 'mail', 'displayName'],
-            paged_size=page_size,
-            paged_cookie=decoded_cookie
+            attributes=['uid', 'cn', 'mail']
         )
         
-        # Extract cookie for next page
-        controls = conn.result.get('controls', {})
-        paged_control = controls.get('1.2.840.113556.1.4.319', {})
-        resp_cookie = paged_control.get('value', {}).get('cookie')
-        new_cookie = base64.b64encode(resp_cookie).decode('utf-8') if resp_cookie else None
+        # Check if we got anything
+        results = []
+        for e in conn.entries:
+            results.append({
+                "dn": e.entry_dn,
+                "uid": str(e.uid) if 'uid' in e else "",
+                "cn": str(e.cn) if 'cn' in e else "",
+                "mail": str(e.mail) if 'mail' in e else ""
+            })
 
-        return {
-            "results": [e.entry_attributes_as_dict for e in conn.entries],
-            "next_cookie": new_cookie
-        }
-
+        return {"results": results}
 @app.get("/api/search/groups")
 async def search_groups(
     name: str = Query(..., description="Group name (cn)"),
