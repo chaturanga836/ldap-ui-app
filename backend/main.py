@@ -488,7 +488,7 @@ async def search_users(
     decoded_cookie = base64.b64decode(cookie) if cookie else None
     
     # This filter looks for the string in uid OR common name OR email
-    search_filter = f"(|(uid=*{q}*)(cn=*{q}*)(mail=*{q}*))"
+    search_filter = f"(|(uid=*{q}*)(cn=*{q}*)(mail=*{q}*)(sn=*{q}*)(givenName=*{q}*))"
     
     with get_conn() as conn:
         conn.search(
