@@ -139,34 +139,44 @@ export default function Dashboard() {
     }
   };
 
-  const handleGroupSubmit = async (values: any) => {
+const handleGroupSubmit = async (values: any) => {
     setLoading(true);
     try {
-      if (editingGroup) {
-        // Logic for Updating
-        await ldapService.updateGroup(editingGroup.cn, {
-          description: values.description,
-          gid: values.gid
-        });
-        message.success(`Group "${editingGroup.cn}" updated successfully`);
-      } else {
-        // Logic for Creating
-        await ldapService.createGroup(values);
-        message.success(`Group "${values.name}" created`);
-      }
+        // Use a local variable to check mode so we don't rely on state during the async call
+        const isEditing = !!editingGroup && typeof editingGroup === 'object';
 
-      // Cleanup
-      setIsGroupModalOpen(false);
-      setEditingGroupConfig(null);
-      setEditingGroup(false);
-      groupForm.resetFields();
-      loadGroups();
+        if (isEditing) {
+            await ldapService.updateGroup(editingGroup.cn, {
+                description: values.description,
+                gid: values.gid
+            });
+            message.success(`Group "${editingGroup.cn}" updated`);
+        } else {
+            await ldapService.createGroup(values);
+            message.success(`Group "${values.name}" created`);
+        }
+
+        // --- FIXED CLEANUP ORDER ---
+        
+        // 1. Close modal first
+        setIsGroupModalOpen(false);
+        
+        // 2. Reset Form
+        groupForm.resetFields();
+        
+        // 3. Set to NULL (not false) to prevent the .cn crash
+        setEditingGroup(null);
+        
+        // 4. Refresh data
+        await loadGroups(); 
+
     } catch (err: any) {
-      message.error(err.message || "Failed to process group request");
+        console.error(err);
+        message.error(err.message || "Failed to process group request");
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
-  };
+};
 
   const setEditingGroupConfig = (group: any) => {
     groupForm.setFieldsValue({
