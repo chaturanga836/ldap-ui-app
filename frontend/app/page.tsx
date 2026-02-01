@@ -206,37 +206,52 @@ export default function Dashboard() {
     },
   ];
 
-  const groupColumns = [
+const groupColumns = [
     { title: 'Group Name', dataIndex: 'cn', key: 'cn' },
-    { title: 'Type', dataIndex: 'type', key: 'type', render: (t: string) => <Tag color="purple">{t}</Tag> },
+    { 
+      title: 'Type', 
+      dataIndex: 'type', 
+      key: 'type', 
+      render: (t: string) => <Tag color="purple">{t}</Tag> 
+    },
     { title: 'GID', dataIndex: 'gidNumber', key: 'gidNumber' },
     { title: 'Members', dataIndex: 'memberCount', key: 'memberCount' },
     {
       title: 'Action',
       render: (_: any, record: any) => (
         <Space>
+          {/* 1. MANAGE MEMBERS BUTTON */}
+          <Button 
+            type="link" 
+            onClick={() => {
+              setTargetGroup(record);      // Set the group for the MemberModal
+              setIsMemberModalOpen(true);  // Open the MemberModal
+            }}
+          >
+            Members
+          </Button>
+
+          {/* 2. EDIT GROUP BUTTON */}
           <Button type="link" onClick={() => {
-            setEditingGroupConfig(record); // Add a new state: const [editingGroup, setEditingGroup] = useState(null);
-            groupForm.setFieldsValue({
-              name: record.cn,
-              description: record.description,
-              group_type: record.gidNumber ? 'posix' : 'non-posix',
-              gid: record.gidNumber
-            });
+            setEditingGroupConfig(record); 
             setIsGroupModalOpen(true);
-          }}>Edit</Button>
+          }}>
+            Edit
+          </Button>
 
-          <Button type="link" onClick={() => {
-          setEditingGroupConfig(record);
-          setIsGroupModalOpen(true);
-        }}>Edit</Button>
-
-          <Button type="link" danger onClick={() => handleDeleteGroup(record.cn)}>Delete</Button>
+          {/* 3. DELETE GROUP BUTTON */}
+          <Popconfirm 
+            title="Delete group?" 
+            onConfirm={() => handleDeleteGroup(record.cn)}
+            okText="Yes"
+            cancelText="No"
+          >
+            <Button type="link" danger>Delete</Button>
+          </Popconfirm>
         </Space>
       )
     },
   ];
-
   if (isAuthChecking) return null;
 
   return (
