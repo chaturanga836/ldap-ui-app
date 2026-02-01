@@ -968,28 +968,41 @@ async def add_user_to_group(payload: dict, admin: str = Depends(validate_admin))
         return {"message": f"Successfully added {username} to group"}
     
 @app.post("/api/groups/remove-member")
-async def remove_user_from_group(
-    payload: dict = Body(...), 
-    admin: str = Depends(validate_admin)
-):
+async def remove_user_from_group(payload: dict, admin: str = Depends(validate_admin)):
     group_dn = payload.get("group_dn")
     user_dn = payload.get("user_dn")
-    username = payload.get("username") # Optional, for memberUid
+    username = payload.get("username")
 
     with get_conn() as conn:
-        # We remove the user from the 'member' attribute
-        # and also 'memberUid' if it's a POSIX group
-        changes = {
-            'member': [(MODIFY_DELETE, [user_dn])],
-            'memberUid': [(MODIFY_DELETE, [username])]
-        }
+        # 1. Fetch the group to see what attributes it supports
+        conn.search(group_dn, '(objectClass=*)', attributes=['objectClass', 'member', 'memberUid'])
+        if not conn.entries:
+            raise HTTPException(status_code=404, detail="Group not found")
         
-        if not conn.modify(group_dn, changes):
-            error = conn.result.get('description', 'Unknown Error')
-            raise HTTPException(status_code=400, detail=f"LDAP Error: {error}")
+        entry = conn.entries[0]
+        group_classes = entry.objectClass.value
+        changes = {}
 
-        return {"status": "success", "message": f"Removed {username} from {group_dn}"}
-    
+        # 2. If it's a Standard Group, remove the Full DN from 'member'
+        if 'groupOfNames' in group_classes or 'groupOfUniqueNames' in group_classes:
+            if 'member' in entry and user_dn in entry.member.values:
+                changes['member'] = [(MODIFY_DELETE, [user_dn])]
+        
+        # 3. If it's a POSIX Group, remove the Username from 'memberUid'
+        if 'posixGroup' in group_classes:
+            if 'memberUid' in entry and username in entry.memberUid.values:
+                changes['memberUid'] = [(MODIFY_DELETE, [username])]
+
+        if not changes:
+            raise HTTPException(status_code=400, detail="User not found in any supported group attributes")
+
+        # 4. Apply the deletion
+        if not conn.modify(group_dn, changes):
+            error_desc = conn.result.get('description', 'Unknown error')
+            raise HTTPException(status_code=400, detail=f"LDAP Error: {error_desc}")
+
+        return {"message": f"Successfully removed {username} from group"}
+        
 @app.get("/api/groups/{group_cn}/members")
 async def get_group_members(group_cn: str, admin: str = Depends(validate_admin)):
     with get_conn() as conn:
