@@ -553,25 +553,27 @@ async def search_groups(
             "next_cookie": new_cookie
         }
         
-@app.delete("/api/groups/{cn}")
-async def delete_group(cn: str):
-    """Deletes a group entry from the ou=groups container."""
-    # Construct the group DN
-    group_dn = f"cn={cn},ou=groups,{BASE_DN}"
-    
+@app.delete("/api/groups/{group_cn}")
+async def delete_group(group_cn: str, admin: str = Depends(validate_admin)):
     with get_conn() as conn:
-        # Check if it exists first to give a better error message
-        if not conn.search(group_dn, '(objectClass=*)', scope=BASE):
-            raise HTTPException(status_code=404, detail=f"Group '{cn}' not found.")
+        # 1. Search for the group to get its full DN
+        # We use a filter to find the exact CN
+        search_filter = f"(&(objectClass=*)(cn={group_cn}))"
+        conn.search(BASE_DN, search_filter)
         
-        # Perform the delete
+        if not conn.entries:
+            raise HTTPException(status_code=404, detail="Group not found")
+        
+        group_dn = conn.entries[0].entry_dn
+        
+        # 2. Attempt to delete using the full DN
         if not conn.delete(group_dn):
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Failed to delete group: {conn.result['description']}"
-            )
+            error_desc = conn.result.get('description', 'Unknown LDAP error')
+            # If the error is 'notAllowedOnNonLeaf', it means there are child entries 
+            # (rare for groups, but possible in some DIT structures)
+            raise HTTPException(status_code=400, detail=f"LDAP Error: {error_desc}")
             
-        return {"message": f"Group '{cn}' deleted successfully"}
+        return {"message": f"Group {group_cn} deleted successfully"}
         
 @app.get("/api/users/{username}/groups")
 async def get_user_groups(username: str):
