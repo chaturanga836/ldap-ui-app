@@ -72,7 +72,7 @@ export const ldapService = {
     },
 // --- DELETE USER METHOD ---
     deleteUser: async (uid: string) => {
-        const url = `${BASE_URL}/api/users/${encodeURIComponent(uid)}`;
+        const url = `${BASE_URL}/api/users/${uid}`;
         const res = await fetch(url, {
             method: "DELETE",
             headers: getAuthHeaders(),
