@@ -504,35 +504,54 @@ async def search_users(q: str = Query(...)):
             })
 
         return {"results": results}
+    
 @app.get("/api/search/groups")
 async def search_groups(
     name: str = Query(..., description="Group name (cn)"),
     page_size: int = Query(10, le=1000),
     cookie: str = None
 ):
-    """Find groups by name."""
     decoded_cookie = base64.b64decode(cookie) if cookie else None
     
     with get_conn() as conn:
         conn.search(
             search_base=BASE_DN,
-            search_filter=f"(&(objectClass=groupOfNames)(cn=*{name}*))",
+            # Broaden filter to catch both types of groups
+            search_filter=f"(|(objectClass=groupOfNames)(objectClass=posixGroup))(cn=*{name}*)",
             search_scope=SUBTREE,
+            # CRITICAL: Tell LDAP to return these fields
+            attributes=['cn', 'description', 'gidNumber', 'member', 'memberUid'],
             paged_size=page_size,
             paged_cookie=decoded_cookie
         )
         
-        # Cookie logic
+        results = []
+        for e in conn.entries:
+            # Handle list attributes safely
+            members = e.member.values if 'member' in e else []
+            posix_members = e.memberUid.values if 'memberUid' in e else []
+            
+            results.append({
+                "dn": e.entry_dn,
+                "cn": e.cn.value,
+                "description": e.description.value if 'description' in e else "",
+                "gidNumber": e.gidNumber.value if 'gidNumber' in e else None,
+                "type": "posix" if 'posixGroup' in e.objectClass else "non-posix",
+                # Combine both just in case, or keep separate for UI
+                "members": members + posix_members, 
+                "memberCount": len(members) + len(posix_members)
+            })
+
+        # Cookie logic remains the same
         controls = conn.result.get('controls', {})
         paged_control = controls.get('1.2.840.113556.1.4.319', {})
         resp_cookie = paged_control.get('value', {}).get('cookie')
         new_cookie = base64.b64encode(resp_cookie).decode('utf-8') if resp_cookie else None
 
         return {
-            "results": [{"dn": e.entry_dn, "cn": e.cn.value} for e in conn.entries],
+            "results": results,
             "next_cookie": new_cookie
         }
-
 @app.delete("/api/groups/{cn}")
 async def delete_group(cn: str):
     """Deletes a group entry from the ou=groups container."""
