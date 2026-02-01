@@ -6,6 +6,7 @@ import { useIdleLogout } from '@/hooks/useIdleLogout';
 import { useRouter } from 'next/navigation';
 import { LogoutOutlined, PlusOutlined, UserOutlined, TeamOutlined } from '@ant-design/icons';
 import Typography from 'antd/es/typography';
+import { MemberModal } from '@/app/components/common/MemberModal';
 
 const { Title, Text } = Typography;
 const { Sider, Content } = Layout;
@@ -35,6 +36,9 @@ export default function Dashboard() {
   const [treeData, setTreeData] = useState([]);
   const [selectedDn, setSelectedDn] = useState<string | undefined>(undefined);
   const [editingUser, setEditingUser] = useState<LDAPUser | null>(null);
+
+  const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
+  const [targetGroup, setTargetGroup] = useState<any>(null); // To track which group to add members to
 
   const [form] = Form.useForm();
   const [groupForm] = Form.useForm();
@@ -221,6 +225,12 @@ export default function Dashboard() {
             });
             setIsGroupModalOpen(true);
           }}>Edit</Button>
+
+          <Button type="link" onClick={() => {
+          setEditingGroupConfig(record);
+          setIsGroupModalOpen(true);
+        }}>Edit</Button>
+
           <Button type="link" danger onClick={() => handleDeleteGroup(record.cn)}>Delete</Button>
         </Space>
       )
@@ -420,6 +430,19 @@ export default function Dashboard() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <MemberModal
+        visible={isMemberModalOpen}
+        group={targetGroup}
+        onCancel={() => {
+          setIsMemberModalOpen(false);
+          setTargetGroup(null);
+        }}
+        onRefresh={() => {
+          loadGroups(); // Refresh count/data after adding member
+        }}
+      />
+
     </Layout>
   );
 }

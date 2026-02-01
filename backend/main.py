@@ -7,7 +7,7 @@ import jwt
 from jwt.exceptions import InvalidTokenError
 import uuid
 from fastapi import FastAPI, HTTPException, Query, Body, Depends, status
-from ldap3 import Server, Connection, ALL, BASE, SUBTREE, MODIFY_REPLACE, MODIFY_ADD, Tls
+from ldap3 import Server, Connection, ALL, BASE, SUBTREE, MODIFY_REPLACE, MODIFY_ADD, MODIFY_DELETE, Tls
 from typing import Dict
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
@@ -920,22 +920,49 @@ def get_ldap_tree():
 
 @app.post("/api/groups/add-member")
 async def add_user_to_group(
-    group_dn: str = Body(..., embed=True),
-    user_dn: str = Body(..., embed=True),
-    username: str = Body(..., embed=True) # The short 'uid'
+    payload: dict = Body(...), 
+    admin: str = Depends(validate_admin)
 ):
-    try:
-        with get_conn() as conn:
-            # We perform two modifications in one go
-            changes = {
-                'member': [(MODIFY_ADD, [user_dn])],
-                'memberUid': [(MODIFY_ADD, [username])]
-            }
-            
-            if not conn.modify(group_dn, changes):
-                # If it fails, it might be because the user is already a member
-                return {"status": "error", "detail": conn.result.get('description')}
-                
-            return {"status": "success", "message": f"User added to {group_dn}"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    group_dn = payload.get("group_dn")
+    user_dn = payload.get("user_dn")
+    username = payload.get("username")
+
+    with get_conn() as conn:
+        # 1. Update 'member' (for groupOfNames)
+        # 2. Update 'memberUid' (for posixGroup compatibility)
+        change = {
+            'member': [(MODIFY_ADD, [user_dn])],
+            'memberUid': [(MODIFY_ADD, [username])]
+        }
+        
+        if not conn.modify(group_dn, change):
+            error = conn.result.get('description', 'Unknown Error')
+            # If user is already in group, LDAP returns 'entryAlreadyExists'
+            if error == 'entryAlreadyExists':
+                 raise HTTPException(status_code=400, detail="User is already a member")
+            raise HTTPException(status_code=400, detail=f"LDAP Error: {error}")
+
+        return {"status": "success", "message": f"Added {username} to {group_dn}"}
+
+@app.post("/api/groups/remove-member")
+async def remove_user_from_group(
+    payload: dict = Body(...), 
+    admin: str = Depends(validate_admin)
+):
+    group_dn = payload.get("group_dn")
+    user_dn = payload.get("user_dn")
+    username = payload.get("username") # Optional, for memberUid
+
+    with get_conn() as conn:
+        # We remove the user from the 'member' attribute
+        # and also 'memberUid' if it's a POSIX group
+        changes = {
+            'member': [(MODIFY_DELETE, [user_dn])],
+            'memberUid': [(MODIFY_DELETE, [username])]
+        }
+        
+        if not conn.modify(group_dn, changes):
+            error = conn.result.get('description', 'Unknown Error')
+            raise HTTPException(status_code=400, detail=f"LDAP Error: {error}")
+
+        return {"status": "success", "message": f"Removed {username} from {group_dn}"}

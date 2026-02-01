@@ -159,4 +159,17 @@ export const ldapService = {
         });
         return response.json();
     },
+
+    removeUserFromGroup: async (groupDn: string, userDn: string, username: string) => {
+        const response = await fetch(`${BASE_URL}/api/groups/remove-member`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ group_dn: groupDn, user_dn: userDn, username }),
+        });
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || "Failed to remove member");
+        }
+        return response.json();
+    },
 };
