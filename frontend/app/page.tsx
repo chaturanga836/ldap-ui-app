@@ -124,9 +124,9 @@ export default function Dashboard() {
     }
   };
 
-  const handleDeleteUser = async (dn: string) => {
+  const handleDeleteUser = async (uid: string) => {
     try {
-      await ldapService.deleteUser(dn);
+      await ldapService.deleteUser(uid);
       message.success("User removed");
       loadUsers(selectedDn);
       loadTree();
@@ -194,7 +194,7 @@ export default function Dashboard() {
       render: (_: any, record: LDAPUser) => (
         <Space>
           <Button type="link" onClick={() => { setEditingUser(record); form.setFieldsValue(record); setIsModalOpen(true); }}>Edit</Button>
-          <Popconfirm title="Delete user?" onConfirm={() => handleDeleteUser(record.dn)}>
+          <Popconfirm title="Delete user?" onConfirm={() => handleDeleteUser(record.uid)}>
             <Button type="link" danger>Delete</Button>
           </Popconfirm>
         </Space>
