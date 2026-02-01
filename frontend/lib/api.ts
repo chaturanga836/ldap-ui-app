@@ -144,9 +144,10 @@ export const ldapService = {
         return res.json();
     },
 
-    // --- SEARCH METHOD ---
+// --- SEARCH METHOD ---
     searchLDAP: async (query: string) => {
-        const res = await fetch(`${BASE_URL}/api/search?q=${encodeURIComponent(query)}`, {
+        // Change from /api/search to /api/search/users
+        const res = await fetch(`${BASE_URL}/api/search/users?q=${encodeURIComponent(query)}`, {
             headers: getAuthHeaders(),
         });
         if (!res.ok) throw new Error("Search failed");
@@ -172,4 +173,6 @@ export const ldapService = {
         }
         return response.json();
     },
+
+    
 };
