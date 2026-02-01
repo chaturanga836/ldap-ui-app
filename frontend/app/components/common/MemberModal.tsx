@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Select, List, Button, Space, message, Typography, Divider } from 'antd';
+import { Modal, Select, List, Button, Space, message, Typography, Divider, Popconfirm } from 'antd';
 import { DeleteOutlined, UserOutlined } from '@ant-design/icons';
 import { ldapService } from '@/lib/api';
 
@@ -65,8 +65,9 @@ export const MemberModal: React.FC<MemberModalProps> = ({ visible, group, onCanc
     };
 
     const parseDn = (dn: string) => {
-        const match = dn.match(/uid=([^,]+)/i);
-        return match ? match[1] : dn;
+        if (!dn) return "Unknown";
+        const match = dn.match(/(uid|cn)=([^,]+)/i);
+        return match ? match[2] : dn;
     };
 
     const handleRemove = async (memberDn: string) => {
@@ -124,20 +125,30 @@ export const MemberModal: React.FC<MemberModalProps> = ({ visible, group, onCanc
                     renderItem={(item) => (
                         <List.Item
                             actions={[
-                                <Button
-                                    type="text"
-                                    danger
-                                    icon={<DeleteOutlined />}
-                                    onClick={() => handleRemove(item)}
-                                />
+                                // POPCONFIRM MUST BE HERE INSIDE THE RENDER ITEM
+                                <Popconfirm
+                                    key="delete"
+                                    title="Remove member?"
+                                    description={`Are you sure you want to remove ${parseDn(item)}?`}
+                                    onConfirm={() => handleRemove(item)}
+                                    okText="Yes"
+                                    cancelText="No"
+                                    placement="left"
+                                >
+                                    <Button
+                                        type="text"
+                                        danger
+                                        icon={<DeleteOutlined />}
+                                    />
+                                </Popconfirm>
                             ]}
                         >
                             <List.Item.Meta
                                 avatar={<UserOutlined style={{ color: '#1890ff' }} />}
-                                title={<Text strong>{parseDn(item)}</Text>} // This shows "admin" instead of the full DN
+                                title={<Text strong>{parseDn(item)}</Text>}
                                 description={
                                     <Text type="secondary" style={{ fontSize: '11px' }} ellipsis={{ tooltip: item }}>
-                                        {item} {/* Keeps the full DN visible in small text or tooltip if needed */}
+                                        {item}
                                     </Text>
                                 }
                             />
