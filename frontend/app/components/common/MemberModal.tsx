@@ -23,9 +23,14 @@ export const MemberModal: React.FC<MemberModalProps> = ({ visible, group, onCanc
         if (!group) return;
         setLoadingMembers(true);
         try {
-            // Assuming your group object has a 'members' array of DNs
-            // If not, you might need a: const data = await ldapService.getGroupDetails(group.cn);
-            setCurrentMembers(group.members || []);
+            // Check for 'member' (DNs) or 'memberUid' (Usernames)
+            // LDAP attributes often come back as arrays or single strings depending on your API
+            const members = group.member || group.memberUid || [];
+
+            // Ensure it's always an array for the List component
+            const memberArray = Array.isArray(members) ? members : [members];
+
+            setCurrentMembers(memberArray);
         } catch (err) {
             message.error("Failed to load members");
         } finally {
